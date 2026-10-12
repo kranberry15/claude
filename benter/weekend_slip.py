@@ -646,21 +646,53 @@ def build_betting_slip(card_bets: list[pd.DataFrame], cfg: Config) -> pd.DataFra
 # ---------------------------------------------------------------------------
 
 
-def run(history: pd.DataFrame, odds_tbl: pd.DataFrame | None, cfg: Config, verbose: bool = True):
+def prepare(history: pd.DataFrame, cfg: Config, verbose: bool = True):
+    """Build features and fit the model once; returns (model, upcoming card)."""
     feat = build_features(history, cfg)
     model = fit_model(feat, cfg, verbose)
-
     card = feat[feat["won"].isna()].copy()
     if card.empty:
         raise ValueError("no upcoming runners (rows with empty finish_position) in the history")
-    card["model_p"] = model.win_probabilities(card)
+    return model, card
 
+
+def apply_live_odds(card: pd.DataFrame, odds_tbl: pd.DataFrame | None) -> pd.DataFrame:
+    """Overwrite the card's win odds with the odds table's WIN rows (e.g. from
+    benter.live_odds) and drop runners the tote no longer lists (scratched).
+    Races with no WIN rows in the table keep the card's odds."""
+    if odds_tbl is None:
+        return card
+    win = odds_tbl[odds_tbl["bet_type"] == "WIN"]
+    if win.empty:
+        return card
+    live = {(r, str(s)): float(o) for r, s, o in zip(win["race_id"], win["selection"], win["odds"])}
+    covered = set(win["race_id"])
+    key = list(zip(card["race_id"], card["horse_no"].astype(str)))
+    in_live = np.array([k in live for k in key])
+    keep = ~card["race_id"].isin(covered).values | in_live
+    card = card[keep].copy()
+    card["win_odds"] = [live.get(k, o) for k, o in zip(zip(card["race_id"], card["horse_no"].astype(str)), card["win_odds"])]
+    inv = 1.0 / card["win_odds"]
+    card["public_p"] = inv / inv.groupby(card["race_id"]).transform("sum")
+    return card
+
+
+def slip_for_card(model: FittedModel, card: pd.DataFrame, odds_tbl: pd.DataFrame | None, cfg: Config):
+    """Score the card at the given odds and build the slip.  Cheap enough to
+    re-run on every odds refresh."""
+    card = apply_live_odds(card, odds_tbl)
+    card["model_p"] = model.win_probabilities(card)
     per_race = []
-    for rid, race in card.groupby("race_id", sort=True):
+    for _, race in card.groupby("race_id", sort=True):
         race = race.sort_values("horse_no")
         bets, outcome_p, payoff = race_bets(race, race["model_p"].values, odds_tbl, cfg)
         per_race.append(optimise_race(bets, outcome_p, payoff, cfg))
     return card, build_betting_slip(per_race, cfg)
+
+
+def run(history: pd.DataFrame, odds_tbl: pd.DataFrame | None, cfg: Config, verbose: bool = True):
+    model, card = prepare(history, cfg, verbose)
+    return slip_for_card(model, card, odds_tbl, cfg)
 
 
 def print_slip(slip: pd.DataFrame, cfg: Config):

@@ -112,6 +112,28 @@ HKD 10 unit adds growth. Expect short or empty slips. That is the method working
 The mock data is a simulated world with real overlays, so its slips say nothing about live
 HKJC profitability.
 
+## Live odds (every 10 s)
+
+`benter/live_odds.py` polls the GraphQL gateway behind bet.hkjc.com for Win, Place and
+Quinella odds. It uses only the Python standard library.
+
+```bash
+python -m benter.live_odds --venue ST                                 # log odds
+python -m benter.live_odds --venue HV --history runs.csv --bankroll 200   # + live slip
+python -m tests.test_live_odds                                        # offline tests
+```
+
+- The next race to run is polled every 10 s (`--interval`, minimum 5 s). Later races are polled
+  every 60 s, and closed races are dropped. One request returns all three pools for a race.
+- Files go to `data/live/`: the card, an append-only snapshot log (de-duplicated on HKJC's
+  `lastUpdateTime`), and `<date>_<venue>_latest.csv` in `weekend_slip --odds` format.
+- With `--history`, the model is fitted once. Each odds change re-scores the races still
+  selling (scratched runners dropped) and prints the slip when it changes.
+- The gateway only accepts HKJC's exact query strings. If it starts returning
+  `WHITELIST_ERROR`, recapture them from the browser's network tab.
+- Read-only: it never places bets. HKJC's terms restrict automated access, so keep the rate low
+  and use it for personal research.
+
 ## Limitations
 
 - 1997–2005 data. Today's market is sharper, with more syndicate money and rebates. Refit on
