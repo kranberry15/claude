@@ -252,7 +252,8 @@ def build_features(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     par = df.groupby(["venue", "distance"])["finish_time"].transform("median")
     dev = (df["finish_time"] - par) / km
     variant = dev.groupby(df["date"].astype(str) + df["venue"]).transform("median")
-    df["speed_fig"] = 100.0 - 10.0 * (dev - variant)
+    # cap at +-40 points (4 s per 1000m): eased / tailed-off runs aren't form
+    df["speed_fig"] = (100.0 - 10.0 * (dev - variant)).clip(60, 140)
 
     g = df.groupby("horse_id", sort=False)
     df["speed_rating"] = g["speed_fig"].transform(lambda s: s.shift().rolling(3, min_periods=1).mean())
@@ -370,7 +371,8 @@ class ConditionalLogit:
         m = np.zeros((n_r, Z.shape[1]))
         np.add.at(m, idx, p[:, None] * Z)
         info = (Z * p[:, None]).T @ Z - m.T @ m
-        self.se_ = np.sqrt(np.diag(np.linalg.pinv(info)))
+        info += 2 * self.l2 * n_r * np.eye(len(self.coef_))  # the ridge term's curvature keeps it invertible
+        self.se_ = np.sqrt(np.diag(np.linalg.inv(info)))
         self.loglik_ = -res.fun * n_r + self.l2 * n_r * self.coef_ @ self.coef_
         return self
 
