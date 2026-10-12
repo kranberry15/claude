@@ -81,6 +81,37 @@ python -m benter.run      # fits, backtests, writes tracker/model.json
 python -m tests.parity    # checks the page's JS reproduces the Python model exactly
 ```
 
+## Weekend betting slip (Win / Place / Quinella, HKD 200)
+
+`benter/weekend_slip.py` is a self-contained version of the whole pipeline (numpy, pandas and
+scipy only) that ends in a betting slip for one race weekend:
+
+```bash
+python -m benter.weekend_slip                                   # mock history -> demo slip
+python -m benter.weekend_slip --history runs.csv --odds odds.csv --out slip.csv
+python -m tests.test_weekend_slip
+```
+
+1. **Variables**: speed rating (par by venue/distance, minus the meeting's track variant, per
+   1000m, mean of the last 3 starts), weight-carried disadvantage (lb above race average × km,
+   with official rating as a control), days since last run (log days, layoff, quick back-up), and
+   shrunk jockey and trainer rates plus a jockey×trainer pair term. All are point-in-time.
+2. **Conditional logit** fitted with scipy (analytic gradient, Hessian standard errors). It
+   matches statsmodels' `ConditionalLogit` in the tests. `MNLogit` is the wrong model here
+   because it fits one coefficient vector per *labelled* alternative.
+3. **Combined model** `c ∝ exp(α ln f + β ln π)`, then discounted Harville (Benter's γ = 0.81,
+   0.65) for 2nd/3rd, which gives consistent Win, Place and Quinella probabilities.
+4. **Edge** `= p × odds − 1` on every line.
+5. **Kelly**: joint log-growth over all top-3 finishing orders, so correlated lines (Win 5,
+   Place 5, Q 5-8) are sized together. Quarter-Kelly equals full Kelly on κ×B = HKD 50, so
+   stakes are chosen as whole HKD 10 units that maximise growth on that bankroll. The slip never
+   exceeds HKD 200.
+
+At HKD 200 and quarter-Kelly, a line needs a full-Kelly fraction of about 10% before one
+HKD 10 unit adds growth. Expect short or empty slips. That is the method working, not a bug.
+The mock data is a simulated world with real overlays, so its slips say nothing about live
+HKJC profitability.
+
 ## Limitations
 
 - 1997–2005 data. Today's market is sharper, with more syndicate money and rebates. Refit on
