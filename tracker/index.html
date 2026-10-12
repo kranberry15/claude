@@ -1,0 +1,550 @@
+<meta charset="utf-8">
+<title>HKJC Overlay Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a tote-board strip of race settings, then the runner sheet as the working surface; tabs for log and evidence. */
+:root {
+  --bg: #f2f4f1;
+  --panel: #ffffff;
+  --ink: #14211c;
+  --muted: #5c6b64;
+  --line: #d5ddd8;
+  --jade: #0f6b4f;
+  --jade-soft: #dcefe6;
+  --gold: #a86a00;
+  --gold-soft: #fbedcf;
+  --bad: #b23a2e;
+  --bad-soft: #f7e0dc;
+  --field: #f7f9f7;
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1513; --panel: #151f1b; --ink: #e4ece8; --muted: #93a39b; --line: #2a3832;
+    --jade: #4fc79a; --jade-soft: #173a2d; --gold: #f0b44c; --gold-soft: #3a2c10;
+    --bad: #f08a7d; --bad-soft: #3b1c18; --field: #101a16; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1513; --panel: #151f1b; --ink: #e4ece8; --muted: #93a39b; --line: #2a3832;
+  --jade: #4fc79a; --jade-soft: #173a2d; --gold: #f0b44c; --gold-soft: #3a2c10;
+  --bad: #f08a7d; --bad-soft: #3b1c18; --field: #101a16; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: grid; gap: 18px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; letter-spacing: .01em; text-wrap: balance; margin: 0; }
+h1 { font-size: 2.1rem; line-height: 1; }
+h2 { font-size: 1.45rem; }
+h3 { font-size: 1.1rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+p { margin: 0; max-width: 68ch; }
+.muted { color: var(--muted); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+header p { font-size: .92rem; }
+nav { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+nav button { font: 600 1.05rem var(--display); letter-spacing: .04em; text-transform: uppercase; background: none; border: 0; color: var(--muted);
+  padding: 8px 14px; border-bottom: 3px solid transparent; cursor: pointer; }
+nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--jade); }
+nav button:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--jade); outline-offset: 2px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.strip { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: end; }
+label.f { display: grid; gap: 3px; font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
+input, select { font: 400 .95rem var(--mono); color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; min-width: 0; }
+label.f input, label.f select { width: 7.5rem; }
+label.f input.wide { width: 9.5rem; }
+button.btn { font: 600 .9rem var(--body); border-radius: 4px; padding: 7px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+button.btn.primary { background: var(--jade); border-color: var(--jade); color: var(--panel); }
+button.btn:disabled { opacity: .5; cursor: not-allowed; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.spacer { flex: 1; }
+
+/* overlay summary */
+.board { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.chip { border: 1px solid var(--gold); background: var(--gold-soft); border-radius: 6px; padding: 10px 12px; display: grid; gap: 2px; }
+.chip .no { font: 700 1.6rem/1 var(--display); }
+.chip .nm { font-weight: 600; }
+.chip .kv { display: flex; justify-content: space-between; font-size: .85rem; }
+.none { border: 1px dashed var(--line); border-radius: 6px; padding: 12px; color: var(--muted); }
+
+/* runner sheet */
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; }
+th { font: 600 .7rem var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); text-align: left; padding: 6px 5px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+th small { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; }
+td { padding: 4px 5px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td input { width: 4.2rem; font-size: .85rem; padding: 4px 5px; }
+td input.w2 { width: 6.4rem; }
+td input.nm { width: 9rem; font-family: var(--body); }
+td.out { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+th.out { text-align: right; }
+th.sep, td.sep { border-left: 2px solid var(--line); }
+tr.over td { background: var(--gold-soft); }
+.pill { display: inline-block; font: 600 .78rem var(--mono); padding: 1px 7px; border-radius: 999px; }
+.pill.pos { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold); }
+.pill.neg { color: var(--muted); }
+.x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 1rem; }
+
+/* evidence */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.stat { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+.stat dt { color: var(--muted); }
+.stat dd { margin: 0; font-family: var(--mono); text-align: right; }
+svg text { fill: var(--muted); font: 11px var(--mono); }
+.note { border-left: 3px solid var(--gold); padding: 6px 12px; background: var(--gold-soft); border-radius: 0 4px 4px 0; }
+.note p + p { margin-top: 6px; }
+.log-item { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.log-item:last-child { border-bottom: 0; }
+.status { font-size: .85rem; color: var(--muted); }
+.tag { font: 600 .72rem var(--body); text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: 3px; background: var(--jade-soft); color: var(--jade); }
+.tag.wait { background: var(--field); color: var(--muted); border: 1px solid var(--line); }
+.tag.lost { background: var(--bad-soft); color: var(--bad); }
+@media (max-width: 520px) { h1 { font-size: 1.7rem; } label.f input, label.f select { width: 6.5rem; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div style="display:grid;gap:6px">
+      <h1>HKJC Overlay Tracker</h1>
+      <p class="muted">Benter-style model fitted and tested on <span id="hdr-races">5,328</span> Sha Tin and Happy Valley races, 1998–2005. Enter a race card with the current win odds and it marks runners the tote is underpricing.</p>
+    </div>
+  </header>
+
+  <nav role="tablist">
+    <button role="tab" id="tab-card" aria-selected="true" data-tab="card">Race card</button>
+    <button role="tab" id="tab-log" aria-selected="false" data-tab="log">Race log</button>
+    <button role="tab" id="tab-evidence" aria-selected="false" data-tab="evidence">Model evidence</button>
+  </nav>
+
+  <!-- RACE CARD -->
+  <section id="view-card" style="display:grid;gap:18px">
+    <div class="panel">
+      <div class="strip">
+        <label class="f">Date<input id="r-date" type="date"></label>
+        <label class="f">Venue<select id="r-venue"><option value="ST">Sha Tin</option><option value="HV">Happy Valley</option></select></label>
+        <label class="f">Race<input id="r-no" type="number" min="1" max="12" value="1"></label>
+        <label class="f">Distance (m)<input id="r-dist" type="number" step="50" value="1200"></label>
+        <span class="spacer"></span>
+        <label class="f">Min edge<input id="s-edge" type="number" step="0.05" value="0.20"></label>
+        <label class="f">Max odds<input id="s-maxodds" type="number" step="1" value="30"></label>
+        <label class="f">Bankroll HK$<input id="s-bank" class="wide" type="number" step="100" value="10000"></label>
+      </div>
+      <p class="muted" id="card-source" style="font-size:.85rem"></p>
+    </div>
+
+    <div class="panel">
+      <div class="row"><h2>Overlays</h2><span class="spacer"></span><span class="status" id="over-note"></span></div>
+      <div class="board" id="board"></div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <h2>Runners</h2><span class="spacer"></span>
+        <button class="btn" id="add-runner">Add runner</button>
+        <button class="btn" id="load-example">Load example</button>
+        <button class="btn" id="clear-card">Clear card</button>
+        <button class="btn primary" id="save-race" disabled title="Connecting to the shared race log…">Save to race log</button>
+      </div>
+      <div class="scroll">
+        <table id="sheet">
+          <thead><tr>
+            <th>No</th><th>Horse</th><th class="sep">Win odds<small>now</small></th>
+            <th class="out">Public</th><th class="out">Form only</th><th class="out">Model</th><th class="out">Edge</th><th class="out">Stake</th>
+            <th class="sep">Draw</th><th>Rtg</th><th>Wt<small>lb carried</small></th>
+            <th>Body wt<small>today / last</small></th><th>Age</th><th>Days<small>since run</small></th>
+            <th>Record<small>starts-W-top3</small></th><th>Last 6<small>oldest → latest</small></th>
+            <th>Last odds<small>oldest → latest</small></th><th>Jockey<small>W/rides</small></th><th>Trainer<small>W/rides</small></th>
+<th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:.85rem">Public = tote-implied chance after removing the take. Form only = Benter's fundamental model, which ignores the odds. Model = market-anchored blend used for the edge. Edge = model chance × odds − 1. Stake = quarter Kelly, capped at 10% of bankroll per race. Blank form fields count as an unraced horse.</p>
+    </div>
+  </section>
+
+  <!-- RACE LOG -->
+  <section id="view-log" hidden style="display:grid;gap:18px">
+    <div class="panel">
+      <div class="row"><h2>Tracked overlays</h2><span class="spacer"></span><span class="status" id="log-status">Connecting to the shared log…</span></div>
+      <dl class="stat" id="log-summary"></dl>
+    </div>
+    <div class="panel">
+      <h2>Saved races</h2>
+      <div id="log-list"><div class="none">No races saved yet. Fill in a race card, then press <b>Save to race log</b>. Enter the winner after the race to settle the flagged bets.</div></div>
+    </div>
+  </section>
+
+  <!-- EVIDENCE -->
+  <section id="view-evidence" hidden style="display:grid;gap:18px">
+    <div class="panel note" style="border:0;border-left:3px solid var(--gold)">
+      <p><b>The tote is hard to beat.</b> On the two held-out seasons (2003–05) the public odds alone explain about as much as any model built here. Benter's two-stage blend puts almost all its weight on the public, so it never finds a positive edge after the 17.5% take.</p>
+      <p>The market-anchored variant does find a thin tail of overlays at high edge. Its profit there rests on a few hundred bets and the confidence intervals mostly still include losing. Treat flagged runners as candidates to check, not as a proven edge.</p>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>How well each view predicts the winner</h3>
+        <dl class="stat" id="r2"></dl>
+        <p class="muted" style="font-size:.85rem">Pseudo-R², Benter's measure: 1 − log-likelihood ÷ log-likelihood if every runner were equally likely. Test races only.</p>
+      </div>
+      <div class="panel">
+        <h3>Data and splits</h3>
+        <dl class="stat" id="splits"></dl>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Flat HK$1 win bets on the test seasons</h3>
+      <div class="scroll"><table id="bt"></table></div>
+      <p class="muted" style="font-size:.85rem">ROI interval is a 90% bootstrap by race. Backtest uses final odds; in practice you bet before the tote closes and late money moves prices.</p>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Calibration: predicted vs actual win rate</h3>
+        <div id="calib"></div>
+      </div>
+      <div class="panel">
+        <h3>Quarter-Kelly bankroll, edge &gt; 20%, odds ≤ 30</h3>
+        <div id="curve"></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Form-only model weights</h3><p class="muted" style="font-size:.85rem">Change in log-odds of winning per 1 standard deviation. Negative means a higher value hurts.</p><dl class="stat" id="coef-a"></dl></div>
+      <div class="panel"><h3>What the public misprices</h3><p class="muted" style="font-size:.85rem">Market-anchored weights. A public weight above 1 means favourites win more often than their odds say, the favourite–longshot bias.</p><dl class="stat" id="coef-b"></dl></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+let M = null;            // model.json
+let runners = [];
+let db = null;
+let logDocs = [];
+
+const EXAMPLE = {
+  date: "2026-10-14", venue: "HV", no: 4, dist: 1200,
+  runners: [
+    { no: 1, name: "Jade Comet",     draw: 6,  rtg: 60, wt: 133, bw: 1102, pbw: 1095, age: 5, days: 21, rec: "18-2-6", last6: "3/5/2/7/4/2",    lodds: "6.5/8/4.9",  jky: "61/420", trn: "38/360", odds: 4.0 },
+    { no: 2, name: "Golden Harbour", draw: 2,  rtg: 58, wt: 131, bw: 1150, pbw: 1158, age: 6, days: 14, rec: "27-3-8", last6: "6/9/3/5/8/6",    lodds: "12/18/9.5",  jky: "22/350", trn: "30/330", odds: 8.2 },
+    { no: 3, name: "Lucky Dragon",   draw: 11, rtg: 57, wt: 130, bw: 1068, pbw: 1060, age: 4, days: 28, rec: "9-1-3",  last6: "1/4/10/6",       lodds: "7/15/22",    jky: "48/400", trn: "25/300", odds: 13.5 },
+    { no: 4, name: "Victory Seeker", draw: 1,  rtg: 55, wt: 128, bw: 1120, pbw: 1118, age: 5, days: 35, rec: "14-1-4", last6: "8/2/6/3/5/1",    lodds: "20/7.5/3.6", jky: "75/430", trn: "41/350", odds: 3.3 },
+    { no: 5, name: "Star Patrol",    draw: 9,  rtg: 54, wt: 127, bw: 1035, pbw: 1040, age: 4, days: 21, rec: "7-0-1",  last6: "9/6/11/7",       lodds: "35/40/28",   jky: "15/300", trn: "20/280", odds: 37 },
+    { no: 6, name: "Happy Fortune",  draw: 4,  rtg: 53, wt: 126, bw: 1092, pbw: 1101, age: 7, days: 49, rec: "41-3-9", last6: "4/7/6/5/9/8",    lodds: "11/14/19",   jky: "33/380", trn: "18/290", odds: 21 },
+    { no: 7, name: "Sunny Express",  draw: 7,  rtg: 52, wt: 124, bw: 1110, pbw: 1112, age: 5, days: 14, rec: "20-2-5", last6: "5/3/12/4/6/3",   lodds: "10/26/8",    jky: "52/410", trn: "35/340", odds: 6.8 },
+    { no: 8, name: "Brilliant Speed",draw: 12, rtg: 50, wt: 122, bw: 1074, pbw: 1070, age: 4, days: 0,  rec: "0-0-0",  last6: "",               lodds: "",           jky: "40/390", trn: "27/310", odds: 17.5 },
+    { no: 9, name: "Thunder Ace",    draw: 3,  rtg: 49, wt: 121, bw: 1128, pbw: 1131, age: 6, days: 21, rec: "30-2-7", last6: "10/4/8/9/3/7",   lodds: "24/13/30",   jky: "29/360", trn: "33/330", odds: 19.0 },
+    { no: 10,name: "Joyful Rider",   draw: 10, rtg: 47, wt: 119, bw: 1088, pbw: 1092, age: 5, days: 28, rec: "16-1-2", last6: "11/12/8/10/12/9",lodds: "45/60/50",   jky: "18/320", trn: "16/270", odds: 70 },
+    { no: 11,name: "Prosperity Gold",draw: 5,  rtg: 46, wt: 118, bw: 1058, pbw: 1049, age: 4, days: 21, rec: "6-0-2",  last6: "7/3/4",          lodds: "25/16/11",   jky: "57/410", trn: "39/350", odds: 10.0 },
+    { no: 12,name: "Ocean Treasure", draw: 8,  rtg: 45, wt: 117, bw: 1140, pbw: 1146, age: 8, days: 70, rec: "52-4-12",last6: "6/10/9/12/11/8",lodds: "30/45/40",   jky: "12/280", trn: "22/300", odds: 29 },
+  ],
+};
+
+// ---------- feature construction: mirrors benter/features.py ----------
+const nums = s => String(s || "").split(/[\/,\s]+/).map(Number).filter(x => isFinite(x) && x > 0);
+const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+function shrink(w, n, kind) { const [p0, k] = M.prior[kind]; return (w + p0 * k) / (n + k); }
+function entityRate(s, kind) {
+  const m = String(s || "").match(/^\s*(\d+)\s*\/\s*(\d+)\s*$/);
+  if (m) return shrink(+m[1], +m[2], kind);
+  const pct = parseFloat(s);
+  if (isFinite(pct)) return pct > 1 ? pct / 100 : pct;
+  return M.prior[kind][0];
+}
+function features(r, field, race) {
+  const rec = String(r.rec || "").split(/[-\/,\s]+/).map(Number).filter(x => isFinite(x) && x >= 0);
+  const starts = rec[0] || 0, wins = rec[1] || 0, top3 = rec[2] || 0;
+  const pos = nums(r.last6).map(p => Math.min(p, 14));
+  const last3 = pos.slice(-3);
+  const lo = nums(r.lodds).map(Math.log);
+  const lo3 = lo.slice(-3);
+  const draw = +r.draw || 1;
+  const df = field > 1 ? Math.min(Math.max((draw - 1) / (field - 1), 0), 1) : 0;
+  const first = starts === 0 && pos.length === 0;
+  const bw = +r.bw, pbw = +r.pbw;
+  const f = {
+    rating: +r.rtg || 60,
+    weight: +r.wt || 123,
+    draw_frac: df,
+    draw_frac_hv: race.venue === "HV" ? df : 0,
+    draw_frac_sprint: race.dist <= 1200 ? df : 0,
+    age: +r.age || 3,
+    first_start: first ? 1 : 0,
+    log_days_off: first ? 0 : Math.log1p(+r.days || 0),
+    dw_change: bw > 0 && pbw > 0 ? bw - pbw : 0,
+    last_pos: pos.length ? pos[pos.length - 1] : 7,
+    avg_pos3: last3.length ? mean(last3) : 7,
+    avg_lb3: r.lb3 != null && r.lb3 !== "" ? +r.lb3 : last3.length ? mean(last3.map(p => M.lb_by_pos[p - 1])) : 6,  // optional exact lengths; else imputed from positions
+    log_starts: Math.log1p(Math.max(starts, pos.length)),
+    win_rate: shrink(wins, Math.max(starts, pos.length), "win"),
+    top3_rate: shrink(top3, Math.max(starts, pos.length), "top3"),
+    jockey_rate: entityRate(r.jky, "jockey"),
+    trainer_rate: entityRate(r.trn, "trainer"),
+    won_last: pos.length && pos[pos.length - 1] === 1 ? 1 : 0,
+    last_log_odds: lo.length ? lo[lo.length - 1] : M.debut_log_odds,
+    avg_log_odds3: lo3.length ? mean(lo3) : M.debut_log_odds,
+  };
+  return f;
+}
+function utility(x, m) { let u = 0; for (let i = 0; i < x.length; i++) u += m.coef[i] * (x[i] - m.mean[i]) / m.std[i]; return u; }
+function softmax(u) { const mx = Math.max(...u); const e = u.map(v => Math.exp(v - mx)); const s = e.reduce((a, b) => a + b, 0); return e.map(v => v / s); }
+
+function score(race) {
+  const live = runners.filter(r => +r.odds > 1);
+  const field = runners.length;
+  if (live.length < 2) return runners.map(() => null);
+  const inv = live.map(r => 1 / r.odds), book = inv.reduce((a, b) => a + b, 0);
+  const pub = inv.map(v => v / book);
+  const X = live.map(r => features(r, field, race));
+  const fund = softmax(X.map(f => utility(M.features.map(k => f[k]), M.fundamental)));
+  const mk = softmax(X.map((f, i) => utility([Math.log(pub[i]), ...M.features.map(k => f[k])], M.market)));
+  const edgeMin = +$("#s-edge").value, maxOdds = +$("#s-maxodds").value;
+  let out = live.map((r, i) => {
+    const edge = mk[i] * r.odds - 1;
+    const over = edge > edgeMin && r.odds <= maxOdds;
+    const kelly = over ? M.kelly.fraction * edge / (r.odds - 1) : 0;
+    return { r, pub: pub[i], fund: fund[i], model: mk[i], edge, over, kelly };
+  });
+  const tot = out.reduce((a, o) => a + o.kelly, 0);
+  if (tot > M.kelly.max_race_exposure) out.forEach(o => { o.kelly *= M.kelly.max_race_exposure / tot; });
+  out.book = book;
+  return out;
+}
+
+// ---------- race card UI ----------
+const COLS = [
+  ["no", "num", ""], ["name", "nm", ""], ["odds", "num", ""], "OUT", ["draw", "num", ""], ["rtg", "num", ""], ["wt", "num", ""],
+  ["bwpair", "", ""], ["age", "num", ""], ["days", "num", ""], ["rec", "w2", ""], ["last6", "w2", ""],
+  ["lodds", "w2", ""], ["jky", "num", ""], ["trn", "num", ""],
+];
+function race() { return { date: $("#r-date").value, venue: $("#r-venue").value, no: +$("#r-no").value, dist: +$("#r-dist").value }; }
+function blank(n) { return { no: n, name: "", draw: n, rtg: "", wt: "", bw: "", pbw: "", age: "", days: "", rec: "", last6: "", lodds: "", jky: "", trn: "", odds: "" }; }
+
+function renderSheet() {
+  const tb = $("#sheet tbody"); tb.textContent = "";
+  runners.forEach((r, i) => {
+    const tr = document.createElement("tr"); tr.dataset.i = i;
+    for (const col of COLS) {
+      if (col === "OUT") {
+        for (const c of ["pub", "fund", "model", "edge", "stake"]) { const td = document.createElement("td"); td.className = "out"; td.dataset.c = c; tr.append(td); }
+        continue;
+      }
+      const [k, cls, ph] = col;
+      const td = document.createElement("td");
+      if (k === "odds" || k === "draw") td.className = "sep";
+      const mk = (key, w) => { const inp = document.createElement("input"); inp.id = `r${i}-${key}`; inp.value = r[key] ?? ""; inp.dataset.k = key;
+        inp.className = w || cls; if (ph) inp.placeholder = ph; inp.inputMode = (key === "name" || key === "rec" || key === "last6" || key === "lodds" || key === "jky" || key === "trn") ? "text" : "decimal"; return inp; };
+      if (k === "bwpair") { const a = mk("bw", "num"), b = mk("pbw", "num"); a.style.width = b.style.width = "3.9rem"; td.append(a, " ", b); }
+      else td.append(mk(k));
+      tr.append(td);
+    }
+    const td = document.createElement("td"); const x = document.createElement("button"); x.className = "x"; x.title = "Remove runner"; x.textContent = "×"; x.dataset.rm = i; td.append(x); tr.append(td);
+    tb.append(tr);
+  });
+  recompute();
+}
+const pct = v => (v * 100).toFixed(1) + "%";
+const hk = v => "HK$" + Math.round(v).toLocaleString("en-US");
+function recompute() {
+  if (!M) return;
+  const R = race(), res = score(R), bank = +$("#s-bank").value || 0;
+  const live = Array.isArray(res) && res[0] !== null ? res : [];
+  const byRunner = new Map(live.map(o => [o.r, o]));
+  [...$("#sheet tbody").rows].forEach((tr, i) => {
+    const o = byRunner.get(runners[i]);
+    const cell = c => tr.querySelector(`[data-c="${c}"]`);
+    tr.classList.toggle("over", !!(o && o.over));
+    if (!o) { ["pub", "fund", "model", "edge", "stake"].forEach(c => cell(c).textContent = "–"); return; }
+    cell("pub").textContent = pct(o.pub); cell("fund").textContent = pct(o.fund); cell("model").textContent = pct(o.model);
+    cell("edge").innerHTML = `<span class="pill ${o.edge > 0 ? "pos" : "neg"}">${o.edge > 0 ? "+" : ""}${(o.edge * 100).toFixed(0)}%</span>`;
+    cell("stake").textContent = o.over ? hk(o.kelly * bank) : "–";
+  });
+  const board = $("#board"); board.textContent = "";
+  const overs = live.filter(o => o.over).sort((a, b) => b.edge - a.edge);
+  $("#over-note").textContent = live.length ? `Tote take on this card ${((1 - 1 / live.book) * 100).toFixed(1)}% · min edge ${(+$("#s-edge").value * 100).toFixed(0)}%` : "";
+  if (!live.length) board.innerHTML = `<div class="none">Enter win odds for at least two runners.</div>`;
+  else if (!overs.length) board.innerHTML = `<div class="none">No overlays at this edge. The best price is #${[...live].sort((a, b) => b.edge - a.edge)[0].r.no} at ${(([...live].sort((a, b) => b.edge - a.edge)[0].edge) * 100).toFixed(0)}% edge.</div>`;
+  for (const o of overs) {
+    const d = document.createElement("div"); d.className = "chip";
+    d.innerHTML = `<div class="row"><span class="no">#${o.r.no}</span><span class="nm"></span></div>
+      <div class="kv"><span>Odds</span><span class="num">${(+o.r.odds).toFixed(1)}</span></div>
+      <div class="kv"><span>Model vs public</span><span class="num">${pct(o.model)} vs ${pct(o.pub)}</span></div>
+      <div class="kv"><span>Edge</span><span class="num">+${(o.edge * 100).toFixed(0)}%</span></div>
+      <div class="kv"><span>Stake</span><span class="num">${hk(o.kelly * bank)}</span></div>`;
+    d.querySelector(".nm").textContent = o.r.name || "";
+    board.append(d);
+  }
+  lastScore = live;
+  saveDraft();
+}
+let lastScore = [];
+
+$("#sheet").addEventListener("input", e => {
+  const inp = e.target; if (!inp.dataset.k) return;
+  const i = +inp.closest("tr").dataset.i, k = inp.dataset.k;
+  runners[i][k] = ["name", "rec", "last6", "lodds", "jky", "trn"].includes(k) ? inp.value : (inp.value === "" ? "" : +inp.value);
+  recompute();
+});
+$("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-rm]"); if (b) { runners.splice(+b.dataset.rm, 1); renderSheet(); } });
+["#r-date", "#r-venue", "#r-no", "#r-dist", "#s-edge", "#s-maxodds", "#s-bank"].forEach(s => $(s).addEventListener("input", recompute));
+$("#add-runner").onclick = () => { runners.push(blank(runners.length + 1)); renderSheet(); };
+$("#clear-card").onclick = () => { runners = Array.from({ length: 12 }, (_, i) => blank(i + 1)); $("#card-source").textContent = "Blank card."; renderSheet(); };
+$("#load-example").onclick = () => loadCard(EXAMPLE, "Example card: made-up horses and prices to show how the sheet works.");
+function loadCard(c, note) {
+  $("#r-date").value = c.date; $("#r-venue").value = c.venue; $("#r-no").value = c.no; $("#r-dist").value = c.dist;
+  runners = c.runners.map(r => ({ ...r })); $("#card-source").textContent = note; renderSheet();
+}
+function saveDraft() { try { localStorage.setItem("hkjc-draft", JSON.stringify({ ...race(), runners })); } catch (e) {} }
+function loadDraft() { try { const d = JSON.parse(localStorage.getItem("hkjc-draft")); if (d && d.runners && d.runners.length) { loadCard(d, "Restored your last card in this browser."); return true; } } catch (e) {} return false; }
+
+// ---------- tabs ----------
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function showTab(t) {
+  document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === t));
+  for (const v of ["card", "log", "evidence"]) $("#view-" + v).hidden = v !== t;
+}
+if (["log", "evidence"].includes(location.hash.slice(1))) showTab(location.hash.slice(1));
+
+// ---------- shared race log (db) ----------
+async function connectLog() {
+  try { db = window.claude ? await window.claude.use("db") : null; } catch (e) { db = null; }
+  const btn = $("#save-race");
+  if (!db) { $("#log-status").textContent = "The shared log needs a signed-in claude.ai viewer. The calculator still works."; btn.title = "Shared log unavailable in this view"; return; }
+  btn.disabled = false; btn.title = "";
+  db.collection("races").orderBy("savedAt", "desc").limit(200).onSnapshot(snap => {
+    logDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    $("#log-status").textContent = `${logDocs.length} race${logDocs.length === 1 ? "" : "s"} in the shared log`;
+    renderLog();
+  }, err => { $("#log-status").textContent = "Could not read the shared log: " + err.message; });
+}
+$("#save-race").onclick = async () => {
+  const R = race(), btn = $("#save-race");
+  const flagged = lastScore.filter(o => o.over).map(o => ({ no: o.r.no, name: o.r.name || "", odds: +o.r.odds, model: +o.model.toFixed(4), pub: +o.pub.toFixed(4), edge: +o.edge.toFixed(4), kelly: +o.kelly.toFixed(4) }));
+  const id = `${R.date || "nodate"}-${R.venue}-R${R.no}`;
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    await db.collection("races").doc(id).set({ ...R, savedAt: new Date().toISOString(), runners: runners.map(r => ({ ...r })), flagged, winner: null });
+    btn.textContent = "Saved";
+  } catch (e) { btn.textContent = e.code === "not_granted" ? "No permission to save" : "Save failed, try again"; }
+  setTimeout(() => { btn.textContent = "Save to race log"; btn.disabled = false; }, 1800);
+};
+function renderLog() {
+  const list = $("#log-list");
+  if (!logDocs.length) { list.innerHTML = `<div class="none">No races saved yet. Fill in a race card, then press <b>Save to race log</b>. Enter the winner after the race to settle the flagged bets.</div>`; }
+  else {
+    list.textContent = "";
+    for (const d of logDocs) {
+      const it = document.createElement("div"); it.className = "log-item";
+      const settled = d.winner != null;
+      const fl = d.flagged || [];
+      const ret = settled ? fl.reduce((a, f) => a + (f.no === d.winner ? f.odds - 1 : -1), 0) : null;
+      it.innerHTML = `<div class="row"><b class="num"></b><span class="spacer"></span>
+        ${fl.length ? (settled ? `<span class="tag ${ret > 0 ? "" : "lost"}">${ret > 0 ? "Won" : "Lost"} ${ret >= 0 ? "+" : ""}${ret.toFixed(2)} units</span>` : `<span class="tag wait">Awaiting result</span>`) : `<span class="tag wait">No overlays flagged</span>`}</div>
+        <div class="muted flags"></div>
+        <div class="row"><label class="f" style="grid-auto-flow:column;align-items:center;gap:8px">Winner no<input type="number" min="1" max="14" style="width:4.5rem" id="w-${d.id}" value="${settled ? d.winner : ""}"></label>
+        <button class="btn" data-settle="${d.id}">${settled ? "Update result" : "Settle"}</button>
+        <button class="btn" data-open="${d.id}">Open card</button></div>`;
+      it.querySelector("b").textContent = `${d.date || "—"} · ${d.venue === "HV" ? "Happy Valley" : "Sha Tin"} R${d.no} · ${d.dist}m`;
+      it.querySelector(".flags").textContent = fl.length ? "Flagged: " + fl.map(f => `#${f.no}${f.name ? " " + f.name : ""} @ ${f.odds} (edge +${Math.round(f.edge * 100)}%)`).join(", ") : "Nothing passed the edge filter.";
+      list.append(it);
+    }
+  }
+  const bets = logDocs.flatMap(d => d.winner != null ? (d.flagged || []).map(f => ({ ...f, won: f.no === d.winner })) : []);
+  const pending = logDocs.filter(d => d.winner == null).reduce((a, d) => a + (d.flagged || []).length, 0);
+  const pnl = bets.reduce((a, b) => a + (b.won ? b.odds - 1 : -1), 0);
+  const exp = bets.reduce((a, b) => a + b.edge, 0);
+  $("#log-summary").innerHTML = `
+    <dt>Races saved</dt><dd>${logDocs.length}</dd>
+    <dt>Overlays settled / pending</dt><dd>${bets.length} / ${pending}</dd>
+    <dt>Winners among settled overlays</dt><dd>${bets.filter(b => b.won).length}</dd>
+    <dt>Flat HK$1 profit</dt><dd>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</dd>
+    <dt>ROI actual vs model expected</dt><dd>${bets.length ? `${(pnl / bets.length * 100).toFixed(1)}% vs ${(exp / bets.length * 100).toFixed(1)}%` : "–"}</dd>`;
+}
+$("#log-list").addEventListener("click", async e => {
+  const s = e.target.closest("[data-settle]"), o = e.target.closest("[data-open]");
+  if (s) {
+    const v = $("#w-" + CSS.escape(s.dataset.settle)).value;
+    s.disabled = true;
+    try { await db.collection("races").doc(s.dataset.settle).update({ winner: v === "" ? null : +v, settledAt: new Date().toISOString() }); }
+    catch (err) { s.textContent = "Could not save"; }
+    s.disabled = false;
+  }
+  if (o) { const d = logDocs.find(x => x.id === o.dataset.open); if (d) { loadCard(d, `Loaded from the race log (saved ${d.savedAt.slice(0, 16).replace("T", " ")}).`); showTab("card"); } }
+});
+
+// ---------- evidence ----------
+function renderEvidence() {
+  const fmt = x => x.toLocaleString("en-US");
+  $("#hdr-races").textContent = fmt(M.races.train + M.races.blend + M.races.test);
+  const r2 = M.r2;
+  $("#r2").innerHTML = [["Public odds", r2.public], ["Form-only model", r2.fundamental], ["Benter two-stage blend", r2.benter_two_stage], ["Market-anchored blend", r2.market_anchored]]
+    .map(([k, v]) => `<dt>${k}</dt><dd>${v.toFixed(4)}</dd>`).join("") + `<dt>Benter blend weights</dt><dd>α ${M.fundamental.alpha.toFixed(3)} · β ${M.fundamental.beta.toFixed(3)}</dd>`;
+  const P = M.periods;
+  $("#splits").innerHTML = `
+    <dt>Source</dt><dd style="font-family:var(--body);text-align:right">Kaggle gdaley/hkracing</dd>
+    <dt>Warm-up (history only)</dt><dd>${P.warmup[0]} → ${P.warmup[1]}</dd>
+    <dt>Fit form model</dt><dd>${fmt(M.races.train)} races</dd>
+    <dt>Fit blend</dt><dd>${fmt(M.races.blend)} races</dd>
+    <dt>Held-out test</dt><dd>${fmt(M.races.test)} races, ${P.test[0]} → ${P.test[1]}</dd>`;
+  const rows = M.backtest.market_anchored.filter(g => g.bets && g.min_edge >= 0);
+  $("#bt").innerHTML = `<thead><tr><th>Min edge</th><th>Max odds</th><th class="out">Bets</th><th class="out">Hit rate</th><th class="out">Avg odds</th><th class="out">ROI</th><th class="out">90% interval</th></tr></thead><tbody>` +
+    [...M.backtest.market_anchored.filter(g => g.min_edge < 0)].map(g => `<tr><td>every runner</td><td class="num">${g.max_odds}</td><td class="out">${fmt(g.bets)}</td><td class="out">${pct(g.hit_rate)}</td><td class="out">${g.avg_odds.toFixed(1)}</td><td class="out">${(g.roi * 100).toFixed(1)}%</td><td class="out">${(g.roi_lo * 100).toFixed(0)}% to ${(g.roi_hi * 100).toFixed(0)}%</td></tr>`).join("") +
+    rows.map(g => `<tr class="${g.roi_lo > 0 ? "over" : ""}"><td class="num">+${(g.min_edge * 100).toFixed(0)}%</td><td class="num">${g.max_odds}</td><td class="out">${fmt(g.bets)}</td><td class="out">${pct(g.hit_rate)}</td><td class="out">${g.avg_odds.toFixed(1)}</td><td class="out"><span class="pill ${g.roi > 0 ? "pos" : "neg"}">${g.roi > 0 ? "+" : ""}${(g.roi * 100).toFixed(1)}%</span></td><td class="out">${(g.roi_lo * 100).toFixed(0)}% to ${(g.roi_hi * 100).toFixed(0)}%</td></tr>`).join("") + "</tbody>";
+  drawCalib(); drawCurve();
+  const lab = { rating: "Rating", weight: "Weight carried", draw_frac: "Draw (wide)", draw_frac_hv: "Draw at Happy Valley", draw_frac_sprint: "Draw in sprints", age: "Age", first_start: "Debut", log_days_off: "Days since run", dw_change: "Body weight change", last_pos: "Last finish position", avg_pos3: "Avg position, last 3", avg_lb3: "Avg lengths beaten, last 3", log_starts: "Career starts", win_rate: "Career win %", top3_rate: "Career top-3 %", jockey_rate: "Jockey win %", trainer_rate: "Trainer win %", won_last: "Won last start", last_log_odds: "Odds last start", avg_log_odds3: "Avg odds, last 3", log_public_p: "Public chance (log)" };
+  const list = (names, coef) => names.map((n, i) => [n, coef[i]]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 10)
+    .map(([n, c]) => `<dt>${lab[n] || n}</dt><dd style="color:${c > 0 ? "var(--jade)" : "var(--bad)"}">${c > 0 ? "+" : ""}${c.toFixed(3)}</dd>`).join("");
+  $("#coef-a").innerHTML = list(M.features, M.fundamental.coef);
+  $("#coef-b").innerHTML = list(M.market.columns, M.market.coef);
+}
+function svgEl(w, h) { return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" style="max-width:100%;display:block">`; }
+function drawCalib() {
+  const W = 360, H = 260, L = 44, B = 34, T = 10, R = 12, mx = 0.5;
+  const x = v => L + (Math.min(v, mx) / mx) * (W - L - R), y = v => H - B - (Math.min(v, mx) / mx) * (H - B - T);
+  let s = svgEl(W, H);
+  for (const t of [0, .1, .2, .3, .4, .5]) s += `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}" stroke="var(--line)"/><line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/>
+    <text x="${x(t)}" y="${H - B + 14}" text-anchor="middle">${t * 100}%</text><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t * 100}%</text>`;
+  s += `<line x1="${x(0)}" y1="${y(0)}" x2="${x(mx)}" y2="${y(mx)}" stroke="var(--muted)" stroke-dasharray="4 4"/>`;
+  const series = [["public", "var(--muted)"], ["market_anchored", "var(--jade)"]];
+  for (const [k, c] of series) {
+    const pts = M.calibration[k].filter(b => b.n >= 30);
+    s += `<polyline fill="none" stroke="${c}" stroke-width="2" points="${pts.map(b => `${x(b.pred)},${y(b.actual)}`).join(" ")}"/>`;
+    s += pts.map(b => `<circle cx="${x(b.pred)}" cy="${y(b.actual)}" r="3.5" fill="${c}"><title>${k}: predicted ${pct(b.pred)}, actual ${pct(b.actual)}, ${b.n} runners</title></circle>`).join("");
+  }
+  s += `<text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">predicted chance</text></svg>`;
+  $("#calib").innerHTML = s + `<div class="row" style="font-size:.85rem;gap:16px"><span><span style="color:var(--muted)">●</span> Public odds</span><span><span style="color:var(--jade)">●</span> Market-anchored model</span><span class="muted">Dashed line = perfect</span></div>`;
+}
+function drawCurve() {
+  const c = M.kelly_curve, W = 360, H = 260, L = 44, B = 34, T = 10, R = 12;
+  const vals = c.map(p => p[1]), lo = Math.min(0.9, ...vals), hi = Math.max(1.1, ...vals);
+  const x = i => L + i / (c.length - 1) * (W - L - R), y = v => H - B - (v - lo) / (hi - lo) * (H - B - T);
+  let s = svgEl(W, H);
+  const ticks = []; for (let t = Math.ceil(lo * 20) / 20; t <= hi + 1e-9; t += 0.05) ticks.push(+t.toFixed(2));
+  for (const t of ticks) s += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t.toFixed(2)}</text>`;
+  s += `<line x1="${L}" x2="${W - R}" y1="${y(1)}" y2="${y(1)}" stroke="var(--muted)" stroke-dasharray="4 4"/>`;
+  const pts = c.map((p, i) => `${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`);
+  s += `<polygon fill="var(--jade-soft)" points="${x(0)},${y(lo)} ${pts.join(" ")} ${x(c.length - 1)},${y(lo)}"/><polyline fill="none" stroke="var(--jade)" stroke-width="2" points="${pts.join(" ")}"/>`;
+  s += `<circle cx="${x(c.length - 1)}" cy="${y(vals[vals.length - 1])}" r="4" fill="var(--jade)"/>`;
+  s += `<text x="${L}" y="${H - B + 14}">${c[0][0]}</text><text x="${W - R}" y="${H - B + 14}" text-anchor="end">${c[c.length - 1][0]}</text>`;
+  s += `<text x="${x(c.length - 1) - 6}" y="${y(vals[vals.length - 1]) - 8}" text-anchor="end" style="fill:var(--ink)">×${vals[vals.length - 1].toFixed(3)}</text></svg>`;
+  $("#curve").innerHTML = s + `<p class="muted" style="font-size:.85rem">Bankroll multiple, one point per race meeting. Starting bank = 1.00.</p>`;
+}
+
+// ---------- boot ----------
+fetch("model.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(m => {
+  M = m;
+  if (!loadDraft()) loadCard(EXAMPLE, "Example card: made-up horses and prices to show how the sheet works.");
+  renderEvidence();
+}).catch(err => {
+  $("#board").innerHTML = `<div class="none">Could not load model.json (${err.message}). Run <code>python -m benter.run</code>, then serve this folder with <code>python -m http.server</code>.</div>`;
+});
+connectLog();
+})();
+</script>
