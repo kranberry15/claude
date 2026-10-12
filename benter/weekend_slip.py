@@ -402,6 +402,7 @@ class FittedModel:
     fundamental: ConditionalLogit
     alpha: float
     beta: float
+    metrics: dict = field(default_factory=dict)  # held-out fit, filled by fit_model
 
     def win_probabilities(self, df: pd.DataFrame) -> np.ndarray:
         """Stage 2 (Benter's combined model):
@@ -441,19 +442,23 @@ def fit_model(feat: pd.DataFrame, cfg: Config, verbose: bool = True) -> FittedMo
         np.column_stack([np.log(f_blend), np.log(blend["public_p"].values)]),
         blend["race_id"].values, blend["won"].values)
     model = FittedModel(fm, *comb.coef_)
+    rid, won = test["race_id"].values, test["won"].values
+    f_test = fm.predict_proba(test[FEATURES].values, rid)
+    model.metrics = dict(
+        races=dict(train=train.race_id.nunique(), blend=blend.race_id.nunique(), test=test.race_id.nunique()),
+        r2_public=pseudo_r2(test["public_p"].values, won, rid), r2_fundamental=pseudo_r2(f_test, won, rid),
+        r2_combined=pseudo_r2(model.win_probabilities(test), won, rid))
 
     if verbose:
-        print(f"races: train {train.race_id.nunique()}  blend {blend.race_id.nunique()}  test {test.race_id.nunique()}")
+        m = model.metrics
+        print(f"races: train {m['races']['train']}  blend {m['races']['blend']}  test {m['races']['test']}")
         print("\nFundamental conditional logit (coef per 1 sd of the factor):")
         print(f"  {'factor':16s} {'coef':>8s} {'s.e.':>7s} {'z':>7s}")
         for name, b, se in zip(FEATURES, fm.coef_, fm.se_):
             print(f"  {name:16s} {b:+8.3f} {se:7.3f} {b / se:+7.1f}")
-        rid, won = test["race_id"].values, test["won"].values
-        f_test = fm.predict_proba(test[FEATURES].values, rid)
         print(f"\nCombined model: alpha (fundamental) {model.alpha:.3f}   beta (public) {model.beta:.3f}")
-        print("Held-out pseudo-R^2:  public {:.4f}   fundamental {:.4f}   combined {:.4f}".format(
-            pseudo_r2(test["public_p"].values, won, rid), pseudo_r2(f_test, won, rid),
-            pseudo_r2(model.win_probabilities(test), won, rid)))
+        print("Held-out pseudo-R^2:  public {r2_public:.4f}   fundamental {r2_fundamental:.4f}   "
+              "combined {r2_combined:.4f}".format(**m))
     return model
 
 

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 import os
 import re
@@ -72,13 +73,17 @@ class GatewayError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
-def post(variables: dict, query: str, timeout: float = 15.0, user_agent: str | None = None) -> list[dict]:
+def post(variables: dict, query: str, timeout: float = 15.0, user_agent: str | None = None,
+         operation: str = "racing") -> list[dict]:
     """POST one whitelisted operation; return the raceMeetings list."""
-    body = json.dumps({"operationName": "racing", "variables": variables, "query": query}).encode()
+    body = json.dumps({"operationName": operation, "variables": variables, "query": query}).encode()
     headers = dict(HEADERS, **({"user-agent": user_agent} if user_agent else {}))
     req = urllib.request.Request(ENDPOINT, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
+        raw = resp.read()
+    if raw[:2] == b"\x1f\x8b":  # the gateway gzips replies even when not asked to
+        raw = gzip.decompress(raw)
+    payload = json.loads(raw.decode("utf-8"))
     if payload.get("errors"):
         raise GatewayError(str(payload["errors"])[:500])
     return (payload.get("data") or {}).get("raceMeetings") or []
