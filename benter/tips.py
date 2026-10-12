@@ -35,6 +35,16 @@ def odds_table(day: str, venue: str, races: list[int], delay: float = 1.0) -> pd
     return pd.DataFrame(rows, columns=["race_id", "bet_type", "selection", "odds"])
 
 
+TRUST_MARGIN = 0.005  # pseudo-R^2 points; smaller gaps are noise on a few hundred test races
+
+
+def is_trusted(model: ws.FittedModel) -> bool:
+    """Real money only if, on races it never saw, the model beats the tote by a
+    clear margin and the blend actually leans on the fundamentals."""
+    m = model.metrics
+    return m["r2_combined"] - m["r2_public"] >= TRUST_MARGIN and model.alpha >= 0.1
+
+
 def describe(slip: pd.DataFrame, card: pd.DataFrame, meeting: dict, cfg: ws.Config, model: ws.FittedModel,
              n_open: int) -> str:
     day = datetime.strptime(meeting["date"], "%Y-%m-%d")
@@ -42,12 +52,13 @@ def describe(slip: pd.DataFrame, card: pd.DataFrame, meeting: dict, cfg: ws.Conf
     post = {lo.race_id(meeting["date"], meeting["venueCode"], int(r["no"])): (r.get("postTime") or "")[11:16]
             for r in meeting.get("races") or []}
     m = model.metrics
-    trusted = m["r2_combined"] > m["r2_public"]
+    trusted = is_trusted(model)
     out = [f"{venue} - {day:%a %d %b %Y} - tips at {datetime.now(lo.HKT):%H:%M} HKT",
            f"Bankroll HKD {cfg.total_bankroll:.0f}, races with odds open: {n_open}", ""]
     if not trusted:
-        out += ["!! PAPER ONLY: on past races the model was NOT better than the tote odds",
-                f"   (score {m['r2_combined']:.4f} vs odds {m['r2_public']:.4f}). Do not bet real money on these.", ""]
+        out += ["!! PAPER ONLY: on past races the model was not clearly better than the tote odds",
+                f"   (score {m['r2_combined']:.4f} vs odds {m['r2_public']:.4f}, weight on form {model.alpha:.2f}).",
+                "   Do not bet real money on these - note them and check the results.", ""]
     if slip.empty:
         out += ["NO BETS - nothing is good value at the current odds. Keep your money."]
     else:
@@ -138,7 +149,7 @@ def main(argv=None):
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"tips_{day}_{venue}.txt"
     path.write_text(text + "\n")
-    trusted = model.metrics["r2_combined"] > model.metrics["r2_public"]
+    trusted = is_trusted(model)
     now = datetime.now(lo.HKT).isoformat(timespec="seconds")
     saved = track.save_tips(slip, day, venue, open_ids, trusted, now)
     print("\n" + text)
