@@ -121,14 +121,34 @@ def parse_race_page(html: str, day: date) -> dict | None:
             win_odds=odds,
         ))
     races = sorted({int(x) for x in re.findall(r"RaceNo=(\d+)", html)} | {race_no})
-    return dict(venue=venue, race_no=race_no, races=races, rows=rows)
+    return dict(venue=venue, race_no=race_no, races=races, rows=rows,
+                dividends=parse_dividends(html, lo.race_id(day.isoformat(), venue, race_no)))
+
+
+def parse_dividends(html: str, rid: str) -> list[tuple]:
+    """(race_id, bet_type, selection, dividend per HKD 10) for Win / Place / Quinella.
+    Read with thousands=None so a quinella '2,3' isn't turned into 23."""
+    try:
+        t = pd.read_html(io.StringIO(html), flavor="lxml", match="Winning Combination", thousands=None)[0]
+    except (ValueError, IndexError):
+        return []
+    t.columns = [c[-1] if isinstance(c, tuple) else c for c in t.columns]
+    t["Pool"] = t["Pool"].ffill()
+    out = []
+    for _, r in t.iterrows():
+        bet = {"WIN": "WIN", "PLACE": "PLACE", "QUINELLA": "QUINELLA"}.get(str(r["Pool"]).strip().upper())
+        div = pd.to_numeric(str(r["Dividend (HK$)"]).replace(",", ""), errors="coerce")
+        sel = lo.selection(r["Winning Combination"])
+        if bet and sel and div == div:
+            out.append((rid, bet, sel, float(div)))
+    return out
 
 
 def scrape_meeting(day: date, delay: float = 1.0, log=print) -> pd.DataFrame | None:
     first = parse_race_page(http_get(f"{RESULTS_URL}?racedate={day:%Y/%m/%d}"), day)
     if first is None:
         return None
-    rows = list(first["rows"])
+    rows, divs = list(first["rows"]), list(first["dividends"])
     for k in first["races"]:
         if k == first["race_no"]:
             continue
@@ -136,8 +156,11 @@ def scrape_meeting(day: date, delay: float = 1.0, log=print) -> pd.DataFrame | N
         page = parse_race_page(http_get(f"{RESULTS_URL}?racedate={day:%Y/%m/%d}&Racecourse={first['venue']}&RaceNo={k}"), day)
         if page:
             rows += page["rows"]
+            divs += page["dividends"]
     log(f"  {day} {first['venue']}: {len(first['races'])} races, {len(rows)} runners")
-    return pd.DataFrame(rows, columns=COLUMNS)
+    df = pd.DataFrame(rows, columns=COLUMNS)
+    df.attrs["dividends"] = pd.DataFrame(divs, columns=["race_id", "bet_type", "selection", "dividend"])
+    return df
 
 
 def update_results(data_dir: Path = DATA, delay: float = 1.0, max_meetings: int | None = None, log=print) -> int:
@@ -161,6 +184,8 @@ def update_results(data_dir: Path = DATA, delay: float = 1.0, max_meetings: int 
         if df is None or df.empty:
             (out / f"{d}.none").touch()  # e.g. a date with no local results
             continue
+        (data_dir / "dividends").mkdir(exist_ok=True)
+        df.attrs["dividends"].to_csv(data_dir / "dividends" / f"{d}.csv", index=False)
         df.to_csv(out / f"{d}.csv", index=False)
         added += 1
     return added

@@ -19,6 +19,7 @@ import pandas as pd
 
 from benter import hkjc_data as hd
 from benter import live_odds as lo
+from benter import track
 from benter import weekend_slip as ws
 
 OUT = hd.ROOT / "data" / "live"
@@ -137,7 +138,11 @@ def main(argv=None):
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"tips_{day}_{venue}.txt"
     path.write_text(text + "\n")
+    trusted = model.metrics["r2_combined"] > model.metrics["r2_public"]
+    now = datetime.now(lo.HKT).isoformat(timespec="seconds")
+    saved = track.save_tips(slip, day, venue, open_ids, trusted, now)
     print("\n" + text)
+    print(f"\n(tips saved for the paper record: {saved.relative_to(hd.ROOT)})")
 
     if a.live:
         book = lo.OddsBook(day, venue, OUT)
@@ -154,6 +159,7 @@ def main(argv=None):
                 last["text"] = s.to_csv(index=False)
                 t = describe(s, c, meeting, cfg, model, len(selling))
                 path.write_text(t + "\n")
+                track.save_tips(s, day, venue, selling, trusted, datetime.now(lo.HKT).isoformat(timespec="seconds"))
                 print("\n" + "-" * 70 + "\nTIPS CHANGED\n" + t)
 
         print(f"\nwatching odds every 10 s until the last race closes (Ctrl-C to stop) ...")
