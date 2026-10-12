@@ -31,10 +31,16 @@ class ConditionalLogit:
     def fit(self, X, race_ids, won):
         X = np.asarray(X, float)
         if self.standardize:
-            self.mean_, self.std_ = X.mean(0), X.std(0) + 1e-12
+            self.mean_, self.std_ = X.mean(0), X.std(0)
+            # a column that never varies (e.g. no ratings in the data) gets no
+            # weight, rather than blowing up when a live value differs
+            self.const_ = self.std_ < 1e-9
+            self.std_ = np.where(self.const_, 1.0, self.std_)
         else:
             self.mean_, self.std_ = np.zeros(X.shape[1]), np.ones(X.shape[1])
+            self.const_ = np.zeros(X.shape[1], bool)
         Z = self._prep(X)
+        Z[:, self.const_] = 0.0
         idx, n_r = self._race_index(race_ids)
         won = np.asarray(won, float)
         n = len(won)

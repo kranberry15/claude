@@ -57,11 +57,19 @@ def shrink(hits, n, kind):
 def load_raw(data_dir: Path = DATA) -> pd.DataFrame:
     races = pd.read_csv(data_dir / "races.csv", parse_dates=["date"])
     runs = pd.read_csv(data_dir / "runs.csv")
-    df = runs.merge(
-        races[["race_id", "date", "venue", "race_no", "distance", "race_class", "surface", "going"]],
-        on="race_id",
-    )
+    keep = ["race_id", "date", "venue", "race_no", "distance", "race_class", "surface", "going"]
+    keep += [c for c in races.columns if c.startswith(("place_combination", "place_dividend"))]
+    df = runs.merge(races[keep], on="race_id")
+    # The scraped HKJC results pages carry no rating, age or place odds.
+    # Constant columns get a zero weight in the model (see ConditionalLogit).
+    for col, default in (("horse_rating", 60.0), ("horse_age", 4.0), ("place_odds", np.nan)):
+        if col not in df:
+            df[col] = default
+        if col != "place_odds":
+            df[col] = df[col].fillna(default)
     # Drop malformed races: not exactly one winner, or implausible book.
+    for col in ("horse_id", "jockey_id", "trainer_id"):
+        df[col] = df[col].astype(str)
     g = df.groupby("race_id")
     book = g["win_odds"].transform(lambda o: (1.0 / o).sum())
     ok = (g["won"].transform("sum") == 1) & book.between(1.1, 1.4) & (g["race_id"].transform("size") >= 5)

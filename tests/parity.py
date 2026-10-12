@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from benter.features import FEATURES, load_features
+from benter.exotics import place_and_qpl
 from benter.model import softmax_by_race
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,12 +56,15 @@ def main():
         script = f"""
 const M = {json.dumps(M)};
 let runners = {json.dumps(runners)};
-const $ = s => ({{ "#s-edge": {{ value: "0.2" }}, "#s-maxodds": {{ value: "30" }} }})[s];
+const $ = s => null;
 {js}
-console.log(JSON.stringify(score({json.dumps(info)}).map(o => o.model)));
+const o = score({json.dumps(info)}); console.log(JSON.stringify([o.map(x => x.model), o.map(x => x.place)]));
 """
-        js_p = np.array(json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout))
+        js_p, js_place = map(np.array, json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout))
         diff = np.abs(js_p - py).max()
+        py_place, _ = place_and_qpl(py, M["exotics"]["g2"], M["exotics"]["g3"])
+        if exact_lb:
+            assert np.abs(js_place - py_place).max() < 1e-9, "place mismatch"
         worst[exact_lb] = max(worst[exact_lb], diff)
         print(f"race {rid}: {len(runners)} runners, exact lengths={exact_lb}, max |js - py| = {diff:.2e}")
     # Exact inputs must match; with lengths-beaten imputed from positions the

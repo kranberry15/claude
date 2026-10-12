@@ -112,7 +112,7 @@ svg text { fill: var(--muted); font: 11px var(--mono); }
   <header>
     <div style="display:grid;gap:6px">
       <h1>HKJC Overlay Tracker</h1>
-      <p class="muted">Benter-style model fitted and tested on <span id="hdr-races">5,328</span> Sha Tin and Happy Valley races, 1998–2005. Enter a race card with the current win odds and it marks runners the tote is underpricing.</p>
+      <p class="muted">Benter-style model fitted and tested on <span id="hdr-races">5,328</span> Sha Tin and Happy Valley races, 1998–2005. Enter a race card with the current win, place and quinella-place odds and it marks bets the tote is underpricing.</p>
     </div>
   </header>
 
@@ -131,11 +131,10 @@ svg text { fill: var(--muted); font: 11px var(--mono); }
         <label class="f">Race<input id="r-no" type="number" min="1" max="12" value="1"></label>
         <label class="f">Distance (m)<input id="r-dist" type="number" step="50" value="1200"></label>
         <span class="spacer"></span>
-        <label class="f">Min edge<input id="s-edge" type="number" step="0.05" value="0.20"></label>
-        <label class="f">Max odds<input id="s-maxodds" type="number" step="1" value="30"></label>
         <label class="f">Bankroll HK$<input id="s-bank" class="wide" type="number" step="100" value="10000"></label>
       </div>
       <p class="muted" id="card-source" style="font-size:.85rem"></p>
+      <p class="muted" id="rules-note" style="font-size:.85rem"></p>
     </div>
 
     <div class="panel">
@@ -154,8 +153,8 @@ svg text { fill: var(--muted); font: 11px var(--mono); }
       <div class="scroll">
         <table id="sheet">
           <thead><tr>
-            <th>No</th><th>Horse</th><th class="sep">Win odds<small>now</small></th>
-            <th class="out">Public</th><th class="out">Form only</th><th class="out">Model</th><th class="out">Edge</th><th class="out">Stake</th>
+            <th>No</th><th>Horse</th><th class="sep">Win odds<small>now</small></th><th>Place odds<small>now</small></th>
+            <th class="out">Public</th><th class="out">Win %</th><th class="out">Win edge</th><th class="out">Place %</th><th class="out">Place edge</th><th class="out">Stake</th>
             <th class="sep">Draw</th><th>Rtg</th><th>Wt<small>lb carried</small></th>
             <th>Body wt<small>today / last</small></th><th>Age</th><th>Days<small>since run</small></th>
             <th>Record<small>starts-W-top3</small></th><th>Last 6<small>oldest → latest</small></th>
@@ -165,7 +164,13 @@ svg text { fill: var(--muted); font: 11px var(--mono); }
           <tbody></tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:.85rem">Public = tote-implied chance after removing the take. Form only = Benter's fundamental model, which ignores the odds. Model = market-anchored blend used for the edge. Edge = model chance × odds − 1. Stake = quarter Kelly, capped at 10% of bankroll per race. Blank form fields count as an unraced horse.</p>
+      <p class="muted" style="font-size:.85rem">Public = tote-implied win chance after removing the take. Win % = market-anchored model. Place % = chance of finishing in the first three (first two with 4–6 runners), from Benter's discounted Harville formula. Edge = chance × odds − 1. Stake = quarter Kelly, all bets in the race capped together at 10% of bankroll. Blank form fields count as an unraced horse.</p>
+    </div>
+
+    <div class="panel">
+      <div class="row"><h2>Quinella place</h2><span class="spacer"></span><span class="status">Most likely pairs to both finish in the first three</span></div>
+      <div class="scroll"><table id="qpl"></table></div>
+      <p class="muted" style="font-size:.85rem">Fair odds = 1 ÷ chance. Type the QPL odds from the HKJC screen for any pair; it is flagged when the odds clear the bet-at price. There are no historical QPL odds to test this rule on, so treat QPL flags as unproven.</p>
     </div>
   </section>
 
@@ -183,10 +188,7 @@ svg text { fill: var(--muted); font: 11px var(--mono); }
 
   <!-- EVIDENCE -->
   <section id="view-evidence" hidden style="display:grid;gap:18px">
-    <div class="panel note" style="border:0;border-left:3px solid var(--gold)">
-      <p><b>The tote is hard to beat.</b> On the two held-out seasons (2003–05) the public odds alone explain about as much as any model built here. Benter's two-stage blend puts almost all its weight on the public, so it never finds a positive edge after the 17.5% take.</p>
-      <p>The market-anchored variant does find a thin tail of overlays at high edge. Its profit there rests on a few hundred bets and the confidence intervals mostly still include losing. Treat flagged runners as candidates to check, not as a proven edge.</p>
-    </div>
+    <div class="panel note" style="border:0;border-left:3px solid var(--gold)" id="verdict"></div>
     <div class="grid2">
       <div class="panel">
         <h3>How well each view predicts the winner</h3>
@@ -198,19 +200,35 @@ svg text { fill: var(--muted); font: 11px var(--mono); }
         <dl class="stat" id="splits"></dl>
       </div>
     </div>
-    <div class="panel">
-      <h3>Flat HK$1 win bets on the test seasons</h3>
-      <div class="scroll"><table id="bt"></table></div>
-      <p class="muted" style="font-size:.85rem">ROI interval is a 90% bootstrap by race. Backtest uses final odds; in practice you bet before the tote closes and late money moves prices.</p>
-    </div>
     <div class="grid2">
       <div class="panel">
-        <h3>Calibration: predicted vs actual win rate</h3>
+        <h3>Flat HK$1 win bets, test seasons</h3>
+        <div class="scroll"><table id="bt-win"></table></div>
+      </div>
+      <div class="panel">
+        <h3>Flat HK$1 place bets, test seasons</h3>
+        <div class="scroll"><table id="bt-place"></table></div>
+      </div>
+    </div>
+    <p class="muted" style="font-size:.85rem">The highlighted row is the rule the tracker uses. It was chosen on the 2002/03 season, before looking at these test seasons. ROI interval is a 90% bootstrap by race. Backtests use final odds; in practice you bet before the tote closes and late money moves prices.</p>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Win calibration</h3>
         <div id="calib"></div>
       </div>
       <div class="panel">
-        <h3>Quarter-Kelly bankroll, edge &gt; 20%, odds ≤ 30</h3>
-        <div id="curve"></div>
+        <h3>Place calibration</h3>
+        <div id="calib-place"></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Quarter-Kelly bankroll, win rule</h3>
+        <div id="curve-win"></div>
+      </div>
+      <div class="panel">
+        <h3>Quarter-Kelly bankroll, place rule</h3>
+        <div id="curve-place"></div>
       </div>
     </div>
     <div class="grid2">
@@ -232,18 +250,18 @@ let logDocs = [];
 const EXAMPLE = {
   date: "2026-10-14", venue: "HV", no: 4, dist: 1200,
   runners: [
-    { no: 1, name: "Jade Comet",     draw: 6,  rtg: 60, wt: 133, bw: 1102, pbw: 1095, age: 5, days: 21, rec: "18-2-6", last6: "3/5/2/7/4/2",    lodds: "6.5/8/4.9",  jky: "61/420", trn: "38/360", odds: 4.0 },
-    { no: 2, name: "Golden Harbour", draw: 2,  rtg: 58, wt: 131, bw: 1150, pbw: 1158, age: 6, days: 14, rec: "27-3-8", last6: "6/9/3/5/8/6",    lodds: "12/18/9.5",  jky: "22/350", trn: "30/330", odds: 8.2 },
-    { no: 3, name: "Lucky Dragon",   draw: 11, rtg: 57, wt: 130, bw: 1068, pbw: 1060, age: 4, days: 28, rec: "9-1-3",  last6: "1/4/10/6",       lodds: "7/15/22",    jky: "48/400", trn: "25/300", odds: 13.5 },
-    { no: 4, name: "Victory Seeker", draw: 1,  rtg: 55, wt: 128, bw: 1120, pbw: 1118, age: 5, days: 35, rec: "14-1-4", last6: "8/2/6/3/5/1",    lodds: "20/7.5/3.6", jky: "75/430", trn: "41/350", odds: 3.3 },
-    { no: 5, name: "Star Patrol",    draw: 9,  rtg: 54, wt: 127, bw: 1035, pbw: 1040, age: 4, days: 21, rec: "7-0-1",  last6: "9/6/11/7",       lodds: "35/40/28",   jky: "15/300", trn: "20/280", odds: 37 },
-    { no: 6, name: "Happy Fortune",  draw: 4,  rtg: 53, wt: 126, bw: 1092, pbw: 1101, age: 7, days: 49, rec: "41-3-9", last6: "4/7/6/5/9/8",    lodds: "11/14/19",   jky: "33/380", trn: "18/290", odds: 21 },
-    { no: 7, name: "Sunny Express",  draw: 7,  rtg: 52, wt: 124, bw: 1110, pbw: 1112, age: 5, days: 14, rec: "20-2-5", last6: "5/3/12/4/6/3",   lodds: "10/26/8",    jky: "52/410", trn: "35/340", odds: 6.8 },
-    { no: 8, name: "Brilliant Speed",draw: 12, rtg: 50, wt: 122, bw: 1074, pbw: 1070, age: 4, days: 0,  rec: "0-0-0",  last6: "",               lodds: "",           jky: "40/390", trn: "27/310", odds: 17.5 },
-    { no: 9, name: "Thunder Ace",    draw: 3,  rtg: 49, wt: 121, bw: 1128, pbw: 1131, age: 6, days: 21, rec: "30-2-7", last6: "10/4/8/9/3/7",   lodds: "24/13/30",   jky: "29/360", trn: "33/330", odds: 19.0 },
-    { no: 10,name: "Joyful Rider",   draw: 10, rtg: 47, wt: 119, bw: 1088, pbw: 1092, age: 5, days: 28, rec: "16-1-2", last6: "11/12/8/10/12/9",lodds: "45/60/50",   jky: "18/320", trn: "16/270", odds: 70 },
-    { no: 11,name: "Prosperity Gold",draw: 5,  rtg: 46, wt: 118, bw: 1058, pbw: 1049, age: 4, days: 21, rec: "6-0-2",  last6: "7/3/4",          lodds: "25/16/11",   jky: "57/410", trn: "39/350", odds: 10.0 },
-    { no: 12,name: "Ocean Treasure", draw: 8,  rtg: 45, wt: 117, bw: 1140, pbw: 1146, age: 8, days: 70, rec: "52-4-12",last6: "6/10/9/12/11/8",lodds: "30/45/40",   jky: "12/280", trn: "22/300", odds: 29 },
+    { no: 1, name: "Jade Comet",     draw: 6,  rtg: 60, wt: 133, bw: 1102, pbw: 1095, age: 5, days: 21, rec: "18-2-6", last6: "3/5/2/7/4/2",    lodds: "6.5/8/4.9",  jky: "61/420", trn: "38/360", odds: 4.0, plo: 1.8 },
+    { no: 2, name: "Golden Harbour", draw: 2,  rtg: 58, wt: 131, bw: 1150, pbw: 1158, age: 6, days: 14, rec: "27-3-8", last6: "6/9/3/5/8/6",    lodds: "12/18/9.5",  jky: "22/350", trn: "30/330", odds: 8.2, plo: 2.9 },
+    { no: 3, name: "Lucky Dragon",   draw: 11, rtg: 57, wt: 130, bw: 1068, pbw: 1060, age: 4, days: 28, rec: "9-1-3",  last6: "1/4/10/6",       lodds: "7/15/22",    jky: "48/400", trn: "25/300", odds: 13.5, plo: 4.4 },
+    { no: 4, name: "Victory Seeker", draw: 1,  rtg: 55, wt: 128, bw: 1120, pbw: 1118, age: 5, days: 35, rec: "14-1-4", last6: "8/2/6/3/5/1",    lodds: "20/7.5/3.6", jky: "75/430", trn: "41/350", odds: 3.3, plo: 1.6 },
+    { no: 5, name: "Star Patrol",    draw: 9,  rtg: 54, wt: 127, bw: 1035, pbw: 1040, age: 4, days: 21, rec: "7-0-1",  last6: "9/6/11/7",       lodds: "35/40/28",   jky: "15/300", trn: "20/280", odds: 37, plo: 10.7 },
+    { no: 6, name: "Happy Fortune",  draw: 4,  rtg: 53, wt: 126, bw: 1092, pbw: 1101, age: 7, days: 49, rec: "41-3-9", last6: "4/7/6/5/9/8",    lodds: "11/14/19",   jky: "33/380", trn: "18/290", odds: 21, plo: 6.4 },
+    { no: 7, name: "Sunny Express",  draw: 7,  rtg: 52, wt: 124, bw: 1110, pbw: 1112, age: 5, days: 14, rec: "20-2-5", last6: "5/3/12/4/6/3",   lodds: "10/26/8",    jky: "52/410", trn: "35/340", odds: 6.8, plo: 2.6 },
+    { no: 8, name: "Brilliant Speed",draw: 12, rtg: 50, wt: 122, bw: 1074, pbw: 1070, age: 4, days: 0,  rec: "0-0-0",  last6: "",               lodds: "",           jky: "40/390", trn: "27/310", odds: 17.5, plo: 5.5 },
+    { no: 9, name: "Thunder Ace",    draw: 3,  rtg: 49, wt: 121, bw: 1128, pbw: 1131, age: 6, days: 21, rec: "30-2-7", last6: "10/4/8/9/3/7",   lodds: "24/13/30",   jky: "29/360", trn: "33/330", odds: 19.0, plo: 5.9 },
+    { no: 10,name: "Joyful Rider",   draw: 10, rtg: 47, wt: 119, bw: 1088, pbw: 1092, age: 5, days: 28, rec: "16-1-2", last6: "11/12/8/10/12/9",lodds: "45/60/50",   jky: "18/320", trn: "16/270", odds: 70, plo: 19.6 },
+    { no: 11,name: "Prosperity Gold",draw: 5,  rtg: 46, wt: 118, bw: 1058, pbw: 1049, age: 4, days: 21, rec: "6-0-2",  last6: "7/3/4",          lodds: "25/16/11",   jky: "57/410", trn: "39/350", odds: 10.0, plo: 3.4 },
+    { no: 12,name: "Ocean Treasure", draw: 8,  rtg: 45, wt: 117, bw: 1140, pbw: 1146, age: 8, days: 70, rec: "52-4-12",last6: "6/10/9/12/11/8",lodds: "30/45/40",   jky: "12/280", trn: "22/300", odds: 29, plo: 8.6 },
   ],
 };
 
@@ -296,6 +314,28 @@ function features(r, field, race) {
 function utility(x, m) { let u = 0; for (let i = 0; i < x.length; i++) u += m.coef[i] * (x[i] - m.mean[i]) / m.std[i]; return u; }
 function softmax(u) { const mx = Math.max(...u); const e = u.map(v => Math.exp(v - mx)); const s = e.reduce((a, b) => a + b, 0); return e.map(v => v / s); }
 
+function placeQpl(p, g2, g3) {
+  // Benter's discounted Harville: P(j 2nd | i 1st) ∝ p_j^g2, P(k 3rd | i, j) ∝ p_k^g3
+  const n = p.length, a2 = p.map(v => v ** g2), a3 = p.map(v => v ** g3);
+  const S2 = a2.reduce((x, y) => x + y, 0), S3 = a3.reduce((x, y) => x + y, 0);
+  const first = new Array(n).fill(0), second = new Array(n).fill(0), third = new Array(n).fill(0);
+  const Q = Array.from({ length: n }, () => new Array(n).fill(0));
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (j === i) continue;
+    const pij = p[i] * a2[j] / (S2 - a2[i]);
+    for (let k = 0; k < n; k++) {
+      if (k === i || k === j) continue;
+      const t = pij * a3[k] / (S3 - a3[i] - a3[j]);
+      first[i] += t; second[j] += t; third[k] += t;
+      Q[i][j] += t; Q[j][i] += t; Q[i][k] += t; Q[k][i] += t; Q[j][k] += t; Q[k][j] += t;
+    }
+  }
+  const place = first.map((v, i) => v + second[i] + (n >= 7 ? third[i] : 0));
+  return { place, qpl: Q };
+}
+const qkey = (a, b) => a < b ? `${a}-${b}` : `${b}-${a}`;
+let qplOdds = {};
+
 function score(race) {
   const live = runners.filter(r => +r.odds > 1);
   const field = runners.length;
@@ -305,27 +345,46 @@ function score(race) {
   const X = live.map(r => features(r, field, race));
   const fund = softmax(X.map(f => utility(M.features.map(k => f[k]), M.fundamental)));
   const mk = softmax(X.map((f, i) => utility([Math.log(pub[i]), ...M.features.map(k => f[k])], M.market)));
-  const edgeMin = +$("#s-edge").value, maxOdds = +$("#s-maxodds").value;
+  const ex = M.exotics || { g2: 0.87, g3: 0.65 };
+  const pq = live.length >= 3 ? placeQpl(mk, ex.g2, ex.g3) : { place: mk.map(() => NaN), qpl: [] };
+  const rules = M.rules || {};
+  const bets = [];
+  const consider = (type, sel, chance, odds, rule, extra) => {
+    if (!(odds > 1) || !isFinite(chance)) return null;
+    const edge = chance * odds - 1;
+    const over = !!rule && edge > rule.min_edge && odds <= rule.max_odds;
+    const b = { type, sel, chance, odds, edge, over, kelly: over ? M.kelly.fraction * edge / (odds - 1) : 0, ...extra };
+    bets.push(b);
+    return b;
+  };
   let out = live.map((r, i) => {
-    const edge = mk[i] * r.odds - 1;
-    const over = edge > edgeMin && r.odds <= maxOdds;
-    const kelly = over ? M.kelly.fraction * edge / (r.odds - 1) : 0;
-    return { r, pub: pub[i], fund: fund[i], model: mk[i], edge, over, kelly };
+    const w = consider("WIN", [r.no], mk[i], +r.odds, rules.win, { name: r.name || "" });
+    const pl = consider("PLACE", [r.no], pq.place[i], +r.plo, rules.place, { name: r.name || "" });
+    return { r, pub: pub[i], fund: fund[i], model: mk[i], place: pq.place[i], edge: w.edge, pedge: pl ? pl.edge : null, bets: [w, pl].filter(Boolean) };
   });
-  const tot = out.reduce((a, o) => a + o.kelly, 0);
-  if (tot > M.kelly.max_race_exposure) out.forEach(o => { o.kelly *= M.kelly.max_race_exposure / tot; });
-  out.book = book;
+  const pairs = [];
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+    const a = live[i], b = live[j], k = qkey(+a.no, +b.no), chance = pq.qpl[i] ? pq.qpl[i][j] : NaN;
+    const bet = consider("QPL", [Math.min(+a.no, +b.no), Math.max(+a.no, +b.no)], chance, +qplOdds[k], rules.qpl, { name: `${a.name || ""} / ${b.name || ""}` });
+    pairs.push({ k, a, b, chance, bet });
+  }
+  pairs.sort((x, y) => y.chance - x.chance);
+  const tot = bets.reduce((a, o) => a + o.kelly, 0);
+  if (tot > M.kelly.max_race_exposure) bets.forEach(o => { o.kelly *= M.kelly.max_race_exposure / tot; });
+  out.forEach(o => { o.over = o.bets.some(b => b.over); o.kelly = o.bets.reduce((a, b) => a + b.kelly, 0); });
+  out.book = book; out.bets = bets; out.pairs = pairs;
   return out;
 }
 
 // ---------- race card UI ----------
 const COLS = [
-  ["no", "num", ""], ["name", "nm", ""], ["odds", "num", ""], "OUT", ["draw", "num", ""], ["rtg", "num", ""], ["wt", "num", ""],
+  ["no", "num", ""], ["name", "nm", ""], ["odds", "num", ""], ["plo", "num", ""], "OUT", ["draw", "num", ""], ["rtg", "num", ""], ["wt", "num", ""],
   ["bwpair", "", ""], ["age", "num", ""], ["days", "num", ""], ["rec", "w2", ""], ["last6", "w2", ""],
   ["lodds", "w2", ""], ["jky", "num", ""], ["trn", "num", ""],
 ];
+const OUTS = ["pub", "model", "edge", "place", "pedge", "stake"];
 function race() { return { date: $("#r-date").value, venue: $("#r-venue").value, no: +$("#r-no").value, dist: +$("#r-dist").value }; }
-function blank(n) { return { no: n, name: "", draw: n, rtg: "", wt: "", bw: "", pbw: "", age: "", days: "", rec: "", last6: "", lodds: "", jky: "", trn: "", odds: "" }; }
+function blank(n) { return { no: n, name: "", draw: n, rtg: "", wt: "", bw: "", pbw: "", age: "", days: "", rec: "", last6: "", lodds: "", jky: "", trn: "", odds: "", plo: "" }; }
 
 function renderSheet() {
   const tb = $("#sheet tbody"); tb.textContent = "";
@@ -333,7 +392,7 @@ function renderSheet() {
     const tr = document.createElement("tr"); tr.dataset.i = i;
     for (const col of COLS) {
       if (col === "OUT") {
-        for (const c of ["pub", "fund", "model", "edge", "stake"]) { const td = document.createElement("td"); td.className = "out"; td.dataset.c = c; tr.append(td); }
+        for (const c of OUTS) { const td = document.createElement("td"); td.className = "out"; td.dataset.c = c; tr.append(td); }
         continue;
       }
       const [k, cls, ph] = col;
@@ -352,6 +411,8 @@ function renderSheet() {
 }
 const pct = v => (v * 100).toFixed(1) + "%";
 const hk = v => "HK$" + Math.round(v).toLocaleString("en-US");
+const pill = e => e == null || !isFinite(e) ? "–" : `<span class="pill ${e > 0 ? "pos" : "neg"}">${e > 0 ? "+" : ""}${(e * 100).toFixed(0)}%</span>`;
+const ruleText = (r, label) => r ? `${label} edge > ${(r.min_edge * 100).toFixed(0)}%, odds ≤ ${r.max_odds}` : `${label}: no rule`;
 function recompute() {
   if (!M) return;
   const R = race(), res = score(R), bank = +$("#s-bank").value || 0;
@@ -361,31 +422,56 @@ function recompute() {
     const o = byRunner.get(runners[i]);
     const cell = c => tr.querySelector(`[data-c="${c}"]`);
     tr.classList.toggle("over", !!(o && o.over));
-    if (!o) { ["pub", "fund", "model", "edge", "stake"].forEach(c => cell(c).textContent = "–"); return; }
-    cell("pub").textContent = pct(o.pub); cell("fund").textContent = pct(o.fund); cell("model").textContent = pct(o.model);
-    cell("edge").innerHTML = `<span class="pill ${o.edge > 0 ? "pos" : "neg"}">${o.edge > 0 ? "+" : ""}${(o.edge * 100).toFixed(0)}%</span>`;
+    if (!o) { OUTS.forEach(c => cell(c).textContent = "–"); return; }
+    cell("pub").textContent = pct(o.pub); cell("model").textContent = pct(o.model);
+    cell("edge").innerHTML = pill(o.edge);
+    cell("place").textContent = isFinite(o.place) ? pct(o.place) : "–";
+    cell("pedge").innerHTML = pill(o.pedge);
     cell("stake").textContent = o.over ? hk(o.kelly * bank) : "–";
   });
+  renderQpl(live, bank);
   const board = $("#board"); board.textContent = "";
-  const overs = live.filter(o => o.over).sort((a, b) => b.edge - a.edge);
-  $("#over-note").textContent = live.length ? `Tote take on this card ${((1 - 1 / live.book) * 100).toFixed(1)}% · min edge ${(+$("#s-edge").value * 100).toFixed(0)}%` : "";
+  const overs = (live.bets || []).filter(b => b.over).sort((a, b) => b.edge - a.edge);
+  $("#over-note").textContent = live.length ? `Tote take on this card ${((1 - 1 / live.book) * 100).toFixed(1)}%` : "";
   if (!live.length) board.innerHTML = `<div class="none">Enter win odds for at least two runners.</div>`;
-  else if (!overs.length) board.innerHTML = `<div class="none">No overlays at this edge. The best price is #${[...live].sort((a, b) => b.edge - a.edge)[0].r.no} at ${(([...live].sort((a, b) => b.edge - a.edge)[0].edge) * 100).toFixed(0)}% edge.</div>`;
-  for (const o of overs) {
+  else if (!overs.length) {
+    const best = [...live.bets].sort((a, b) => b.edge - a.edge)[0];
+    board.innerHTML = `<div class="none">No bet clears the rules. Closest: ${best.type} ${best.sel.join("-")} at ${(best.edge * 100).toFixed(0)}% edge.</div>`;
+  }
+  for (const b of overs) {
     const d = document.createElement("div"); d.className = "chip";
-    d.innerHTML = `<div class="row"><span class="no">#${o.r.no}</span><span class="nm"></span></div>
-      <div class="kv"><span>Odds</span><span class="num">${(+o.r.odds).toFixed(1)}</span></div>
-      <div class="kv"><span>Model vs public</span><span class="num">${pct(o.model)} vs ${pct(o.pub)}</span></div>
-      <div class="kv"><span>Edge</span><span class="num">+${(o.edge * 100).toFixed(0)}%</span></div>
-      <div class="kv"><span>Stake</span><span class="num">${hk(o.kelly * bank)}</span></div>`;
-    d.querySelector(".nm").textContent = o.r.name || "";
+    d.innerHTML = `<div class="row"><span class="tag">${b.type}</span><span class="no">${b.sel.map(n => "#" + n).join(" ")}</span></div><div class="nm"></div>
+      <div class="kv"><span>Odds</span><span class="num">${(+b.odds).toFixed(1)}</span></div>
+      <div class="kv"><span>Model chance</span><span class="num">${pct(b.chance)}</span></div>
+      <div class="kv"><span>Edge</span><span class="num">+${(b.edge * 100).toFixed(0)}%</span></div>
+      <div class="kv"><span>Stake</span><span class="num">${hk(b.kelly * bank)}</span></div>`;
+    d.querySelector(".nm").textContent = b.name;
     board.append(d);
   }
+  const rl = M.rules || {};
+  $("#rules-note").textContent = `Betting rules fitted on history: ${ruleText(rl.win, "Win")} · ${ruleText(rl.place, "Place")} · ${ruleText(rl.qpl, "QPL")}${rl.qpl && !rl.qpl.validated ? " (not backtested)" : ""}.`;
   lastScore = live;
   saveDraft();
 }
+function renderQpl(live, bank) {
+  const t = $("#qpl");
+  if (!live.pairs || !live.pairs.length) { t.innerHTML = `<tbody><tr><td class="muted">Enter win odds for at least three runners.</td></tr></tbody>`; return; }
+  const minEdge = M.rules && M.rules.qpl ? M.rules.qpl.min_edge : 0.25;
+  const top = live.pairs.slice(0, 10);
+  t.innerHTML = `<thead><tr><th>Pair</th><th>Horses</th><th class="out">Chance</th><th class="out">Fair odds</th><th class="out">Bet at ≥</th><th class="sep">HKJC QPL odds</th><th class="out">Edge</th><th class="out">Stake</th></tr></thead><tbody>` +
+    top.map(q => `<tr class="${q.bet && q.bet.over ? "over" : ""}"><td class="num">${q.k}</td><td class="nm"></td><td class="out">${pct(q.chance)}</td>
+      <td class="out">${(1 / q.chance).toFixed(1)}</td><td class="out">${((1 + minEdge) / q.chance).toFixed(1)}</td>
+      <td class="sep"><input class="num" id="q-${q.k}" data-q="${q.k}" inputmode="decimal" value="${qplOdds[q.k] ?? ""}"></td>
+      <td class="out">${q.bet ? pill(q.bet.edge) : "–"}</td><td class="out">${q.bet && q.bet.over ? hk(q.bet.kelly * bank) : "–"}</td></tr>`).join("") + "</tbody>";
+  [...t.querySelectorAll("tbody tr")].forEach((tr, i) => { tr.querySelector(".nm").textContent = `${top[i].a.name || "#" + top[i].a.no} / ${top[i].b.name || "#" + top[i].b.no}`; });
+}
 let lastScore = [];
 
+$("#qpl").addEventListener("change", e => {
+  const k = e.target.dataset.q; if (!k) return;
+  if (e.target.value === "") delete qplOdds[k]; else qplOdds[k] = +e.target.value;
+  recompute();
+});
 $("#sheet").addEventListener("input", e => {
   const inp = e.target; if (!inp.dataset.k) return;
   const i = +inp.closest("tr").dataset.i, k = inp.dataset.k;
@@ -393,15 +479,15 @@ $("#sheet").addEventListener("input", e => {
   recompute();
 });
 $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-rm]"); if (b) { runners.splice(+b.dataset.rm, 1); renderSheet(); } });
-["#r-date", "#r-venue", "#r-no", "#r-dist", "#s-edge", "#s-maxodds", "#s-bank"].forEach(s => $(s).addEventListener("input", recompute));
+["#r-date", "#r-venue", "#r-no", "#r-dist", "#s-bank"].forEach(s => $(s).addEventListener("input", recompute));
 $("#add-runner").onclick = () => { runners.push(blank(runners.length + 1)); renderSheet(); };
-$("#clear-card").onclick = () => { runners = Array.from({ length: 12 }, (_, i) => blank(i + 1)); $("#card-source").textContent = "Blank card."; renderSheet(); };
+$("#clear-card").onclick = () => { runners = Array.from({ length: 12 }, (_, i) => blank(i + 1)); qplOdds = {}; $("#card-source").textContent = "Blank card."; renderSheet(); };
 $("#load-example").onclick = () => loadCard(EXAMPLE, "Example card: made-up horses and prices to show how the sheet works.");
 function loadCard(c, note) {
   $("#r-date").value = c.date; $("#r-venue").value = c.venue; $("#r-no").value = c.no; $("#r-dist").value = c.dist;
-  runners = c.runners.map(r => ({ ...r })); $("#card-source").textContent = note; renderSheet();
+  runners = c.runners.map(r => ({ ...r })); qplOdds = { ...(c.qplOdds || {}) }; $("#card-source").textContent = note; renderSheet();
 }
-function saveDraft() { try { localStorage.setItem("hkjc-draft", JSON.stringify({ ...race(), runners })); } catch (e) {} }
+function saveDraft() { try { localStorage.setItem("hkjc-draft", JSON.stringify({ ...race(), runners, qplOdds })); } catch (e) {} }
 function loadDraft() { try { const d = JSON.parse(localStorage.getItem("hkjc-draft")); if (d && d.runners && d.runners.length) { loadCard(d, "Restored your last card in this browser."); return true; } } catch (e) {} return false; }
 
 // ---------- tabs ----------
@@ -426,53 +512,63 @@ async function connectLog() {
 }
 $("#save-race").onclick = async () => {
   const R = race(), btn = $("#save-race");
-  const flagged = lastScore.filter(o => o.over).map(o => ({ no: o.r.no, name: o.r.name || "", odds: +o.r.odds, model: +o.model.toFixed(4), pub: +o.pub.toFixed(4), edge: +o.edge.toFixed(4), kelly: +o.kelly.toFixed(4) }));
+  const flagged = (lastScore.bets || []).filter(b => b.over).map(b => ({ type: b.type, sel: b.sel, name: b.name || "", odds: +b.odds, chance: +b.chance.toFixed(4), edge: +b.edge.toFixed(4), kelly: +b.kelly.toFixed(4) }));
   const id = `${R.date || "nodate"}-${R.venue}-R${R.no}`;
   btn.disabled = true; btn.textContent = "Saving…";
   try {
-    await db.collection("races").doc(id).set({ ...R, savedAt: new Date().toISOString(), runners: runners.map(r => ({ ...r })), flagged, winner: null });
+    await db.collection("races").doc(id).set({ ...R, savedAt: new Date().toISOString(), runners: runners.map(r => ({ ...r })), qplOdds, flagged, field: runners.length, placings: null });
     btn.textContent = "Saved";
   } catch (e) { btn.textContent = e.code === "not_granted" ? "No permission to save" : "Save failed, try again"; }
   setTimeout(() => { btn.textContent = "Save to race log"; btn.disabled = false; }, 1800);
 };
+// older log entries stored only the winner and win bets
+const placingsOf = d => d.placings || (d.winner != null ? [d.winner] : null);
+const betsOf = d => (d.flagged || []).map(f => f.type ? f : { type: "WIN", sel: [f.no], name: f.name, odds: f.odds, edge: f.edge });
+function betReturn(b, placings, field) {
+  if (!placings) return null;
+  const top = placings.slice(0, field >= 7 ? 3 : 2);
+  const hit = b.type === "WIN" ? placings[0] === b.sel[0]
+    : b.type === "PLACE" ? top.includes(b.sel[0])
+    : b.sel.every(n => placings.slice(0, 3).includes(n));
+  return hit ? b.odds - 1 : -1;
+}
 function renderLog() {
   const list = $("#log-list");
-  if (!logDocs.length) { list.innerHTML = `<div class="none">No races saved yet. Fill in a race card, then press <b>Save to race log</b>. Enter the winner after the race to settle the flagged bets.</div>`; }
+  if (!logDocs.length) { list.innerHTML = `<div class="none">No races saved yet. Fill in a race card, then press <b>Save to race log</b>. Enter the first three home after the race to settle the flagged bets.</div>`; }
   else {
     list.textContent = "";
     for (const d of logDocs) {
       const it = document.createElement("div"); it.className = "log-item";
-      const settled = d.winner != null;
-      const fl = d.flagged || [];
-      const ret = settled ? fl.reduce((a, f) => a + (f.no === d.winner ? f.odds - 1 : -1), 0) : null;
+      const pl = placingsOf(d), fl = betsOf(d), field = d.field || (d.runners || []).length || 12;
+      const settled = !!pl;
+      const ret = settled ? fl.reduce((a, b) => a + betReturn(b, pl, field), 0) : null;
       it.innerHTML = `<div class="row"><b class="num"></b><span class="spacer"></span>
-        ${fl.length ? (settled ? `<span class="tag ${ret > 0 ? "" : "lost"}">${ret > 0 ? "Won" : "Lost"} ${ret >= 0 ? "+" : ""}${ret.toFixed(2)} units</span>` : `<span class="tag wait">Awaiting result</span>`) : `<span class="tag wait">No overlays flagged</span>`}</div>
+        ${fl.length ? (settled ? `<span class="tag ${ret > 0 ? "" : "lost"}">${ret > 0 ? "Up" : "Down"} ${ret >= 0 ? "+" : ""}${ret.toFixed(2)} units</span>` : `<span class="tag wait">Awaiting result</span>`) : `<span class="tag wait">No bets flagged</span>`}</div>
         <div class="muted flags"></div>
-        <div class="row"><label class="f" style="grid-auto-flow:column;align-items:center;gap:8px">Winner no<input type="number" min="1" max="14" style="width:4.5rem" id="w-${d.id}" value="${settled ? d.winner : ""}"></label>
+        <div class="row"><label class="f" style="grid-auto-flow:column;align-items:center;gap:8px">First three<input style="width:7rem" placeholder="7 2 11" id="w-${d.id}" value="${settled ? pl.join(" ") : ""}"></label>
         <button class="btn" data-settle="${d.id}">${settled ? "Update result" : "Settle"}</button>
         <button class="btn" data-open="${d.id}">Open card</button></div>`;
       it.querySelector("b").textContent = `${d.date || "—"} · ${d.venue === "HV" ? "Happy Valley" : "Sha Tin"} R${d.no} · ${d.dist}m`;
-      it.querySelector(".flags").textContent = fl.length ? "Flagged: " + fl.map(f => `#${f.no}${f.name ? " " + f.name : ""} @ ${f.odds} (edge +${Math.round(f.edge * 100)}%)`).join(", ") : "Nothing passed the edge filter.";
+      it.querySelector(".flags").textContent = fl.length ? "Flagged: " + fl.map(b => `${b.type} ${b.sel.join("-")} @ ${b.odds} (edge +${Math.round(b.edge * 100)}%)`).join(", ") : "Nothing passed the rules.";
       list.append(it);
     }
   }
-  const bets = logDocs.flatMap(d => d.winner != null ? (d.flagged || []).map(f => ({ ...f, won: f.no === d.winner })) : []);
-  const pending = logDocs.filter(d => d.winner == null).reduce((a, d) => a + (d.flagged || []).length, 0);
-  const pnl = bets.reduce((a, b) => a + (b.won ? b.odds - 1 : -1), 0);
-  const exp = bets.reduce((a, b) => a + b.edge, 0);
-  $("#log-summary").innerHTML = `
-    <dt>Races saved</dt><dd>${logDocs.length}</dd>
-    <dt>Overlays settled / pending</dt><dd>${bets.length} / ${pending}</dd>
-    <dt>Winners among settled overlays</dt><dd>${bets.filter(b => b.won).length}</dd>
-    <dt>Flat HK$1 profit</dt><dd>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</dd>
-    <dt>ROI actual vs model expected</dt><dd>${bets.length ? `${(pnl / bets.length * 100).toFixed(1)}% vs ${(exp / bets.length * 100).toFixed(1)}%` : "–"}</dd>`;
+  const settledBets = logDocs.flatMap(d => { const pl = placingsOf(d), f = d.field || (d.runners || []).length || 12; return pl ? betsOf(d).map(b => ({ ...b, ret: betReturn(b, pl, f) })) : []; });
+  const pending = logDocs.filter(d => !placingsOf(d)).reduce((a, d) => a + betsOf(d).length, 0);
+  const rows = ["WIN", "PLACE", "QPL"].map(t => {
+    const bs = settledBets.filter(b => b.type === t), pnl = bs.reduce((a, b) => a + b.ret, 0), exp = bs.reduce((a, b) => a + b.edge, 0);
+    return `<dt>${t}: ${bs.length} settled, ${bs.filter(b => b.ret > -1).length} hit</dt><dd>${bs.length ? `ROI ${(pnl / bs.length * 100).toFixed(1)}% vs expected ${(exp / bs.length * 100).toFixed(1)}%` : "–"}</dd>`;
+  }).join("");
+  const pnl = settledBets.reduce((a, b) => a + b.ret, 0);
+  $("#log-summary").innerHTML = `<dt>Races saved</dt><dd>${logDocs.length}</dd><dt>Bets settled / pending</dt><dd>${settledBets.length} / ${pending}</dd>${rows}
+    <dt>Flat HK$1 profit, all bets</dt><dd>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</dd>`;
 }
 $("#log-list").addEventListener("click", async e => {
   const s = e.target.closest("[data-settle]"), o = e.target.closest("[data-open]");
   if (s) {
-    const v = $("#w-" + CSS.escape(s.dataset.settle)).value;
+    const v = $("#w-" + CSS.escape(s.dataset.settle)).value.match(/\d+/g);
     s.disabled = true;
-    try { await db.collection("races").doc(s.dataset.settle).update({ winner: v === "" ? null : +v, settledAt: new Date().toISOString() }); }
+    try { await db.collection("races").doc(s.dataset.settle).update({ placings: v ? v.map(Number) : null, settledAt: new Date().toISOString() }); }
     catch (err) { s.textContent = "Could not save"; }
     s.disabled = false;
   }
@@ -480,24 +576,39 @@ $("#log-list").addEventListener("click", async e => {
 });
 
 // ---------- evidence ----------
+function btTable(sel, rows, rule) {
+  const fmt = x => x.toLocaleString("en-US");
+  const isRule = g => rule && g.min_edge === rule.min_edge && g.max_odds === rule.max_odds;
+  const shown = rows.filter(g => g.bets && (g.min_edge < 0 || [0, 0.1, 0.2, 0.3].includes(g.min_edge) || isRule(g)));
+  $(sel).innerHTML = `<thead><tr><th>Edge</th><th>Odds ≤</th><th class="out">Bets</th><th class="out">ROI</th><th class="out">90% interval</th></tr></thead><tbody>` +
+    shown.map(g => `<tr class="${isRule(g) ? "over" : ""}"><td class="num">${g.min_edge < 0 ? "every" : "> " + (g.min_edge * 100).toFixed(0) + "%"}</td><td class="num">${g.max_odds}</td>
+      <td class="out">${fmt(g.bets)}</td><td class="out">${pill(g.roi)}</td><td class="out">${(g.roi_lo * 100).toFixed(0)}% to ${(g.roi_hi * 100).toFixed(0)}%</td></tr>`).join("") + "</tbody>";
+}
 function renderEvidence() {
   const fmt = x => x.toLocaleString("en-US");
   $("#hdr-races").textContent = fmt(M.races.train + M.races.blend + M.races.test);
   const r2 = M.r2;
   $("#r2").innerHTML = [["Public odds", r2.public], ["Form-only model", r2.fundamental], ["Benter two-stage blend", r2.benter_two_stage], ["Market-anchored blend", r2.market_anchored]]
-    .map(([k, v]) => `<dt>${k}</dt><dd>${v.toFixed(4)}</dd>`).join("") + `<dt>Benter blend weights</dt><dd>α ${M.fundamental.alpha.toFixed(3)} · β ${M.fundamental.beta.toFixed(3)}</dd>`;
+    .map(([k, v]) => `<dt>${k}</dt><dd>${v.toFixed(4)}</dd>`).join("") + `<dt>Benter blend weights</dt><dd>α ${M.fundamental.alpha.toFixed(3)} · β ${M.fundamental.beta.toFixed(3)}</dd>` +
+    (M.exotics ? `<dt>Place discount (2nd, 3rd)</dt><dd>${M.exotics.g2.toFixed(2)} · ${M.exotics.g3.toFixed(2)}</dd>` : "");
   const P = M.periods;
   $("#splits").innerHTML = `
     <dt>Source</dt><dd style="font-family:var(--body);text-align:right">Kaggle gdaley/hkracing</dd>
     <dt>Warm-up (history only)</dt><dd>${P.warmup[0]} → ${P.warmup[1]}</dd>
-    <dt>Fit form model</dt><dd>${fmt(M.races.train)} races</dd>
-    <dt>Fit blend</dt><dd>${fmt(M.races.blend)} races</dd>
+    <dt>Fit models</dt><dd>${fmt(M.races.train)} races</dd>
+    <dt>Fit blend, choose rules</dt><dd>${fmt(M.races.blend)} races</dd>
     <dt>Held-out test</dt><dd>${fmt(M.races.test)} races, ${P.test[0]} → ${P.test[1]}</dd>`;
-  const rows = M.backtest.market_anchored.filter(g => g.bets && g.min_edge >= 0);
-  $("#bt").innerHTML = `<thead><tr><th>Min edge</th><th>Max odds</th><th class="out">Bets</th><th class="out">Hit rate</th><th class="out">Avg odds</th><th class="out">ROI</th><th class="out">90% interval</th></tr></thead><tbody>` +
-    [...M.backtest.market_anchored.filter(g => g.min_edge < 0)].map(g => `<tr><td>every runner</td><td class="num">${g.max_odds}</td><td class="out">${fmt(g.bets)}</td><td class="out">${pct(g.hit_rate)}</td><td class="out">${g.avg_odds.toFixed(1)}</td><td class="out">${(g.roi * 100).toFixed(1)}%</td><td class="out">${(g.roi_lo * 100).toFixed(0)}% to ${(g.roi_hi * 100).toFixed(0)}%</td></tr>`).join("") +
-    rows.map(g => `<tr class="${g.roi_lo > 0 ? "over" : ""}"><td class="num">+${(g.min_edge * 100).toFixed(0)}%</td><td class="num">${g.max_odds}</td><td class="out">${fmt(g.bets)}</td><td class="out">${pct(g.hit_rate)}</td><td class="out">${g.avg_odds.toFixed(1)}</td><td class="out"><span class="pill ${g.roi > 0 ? "pos" : "neg"}">${g.roi > 0 ? "+" : ""}${(g.roi * 100).toFixed(1)}%</span></td><td class="out">${(g.roi_lo * 100).toFixed(0)}% to ${(g.roi_hi * 100).toFixed(0)}%</td></tr>`).join("") + "</tbody>";
-  drawCalib(); drawCurve();
+  const R = M.rules || {}, B = M.backtest;
+  btTable("#bt-win", B.win, R.win); btTable("#bt-place", B.place || [], R.place);
+  const at = (rows, r) => r && rows.find(g => g.min_edge === r.min_edge && g.max_odds === r.max_odds);
+  const all = (rows, cap) => rows.find(g => g.min_edge < 0 && g.max_odds === cap);
+  const w = at(B.win, R.win), p = at(B.place || [], R.place), pAll = all(B.place || [], 99), wAll = all(B.win, 99);
+  const pc = x => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%`;
+  $("#verdict").innerHTML = `<p><b>The tote is hard to beat.</b> Over the test seasons, backing every runner returned ${pc(wAll.roi)} in the win pool and ${pAll ? pc(pAll.roi) : "–"} in the place pool. Benter's two-stage blend puts almost all its weight on the public odds.</p>
+    <p>The model's rules cut those losses: win bets ${w ? pc(w.roi) : "–"} over ${w ? fmt(w.bets) : 0} bets, place bets ${p ? pc(p.roi) : "–"} over ${p ? fmt(p.bets) : 0} bets (90% range ${p ? pc(p.roi_lo) + " to " + pc(p.roi_hi) : "–"}). Place is the better pool, but neither rule shows a reliable profit. QPL could not be tested because the history has no QPL odds; the race log is how to find out.</p>`;
+  drawCalib("#calib", [["public", "var(--muted)", "Public odds"], ["market_anchored", "var(--jade)", "Model"]], 0.5);
+  if (M.calibration.place && M.calibration.place.length) drawCalib("#calib-place", [["place", "var(--jade)", "Model place chance"]], 1.0);
+  drawCurve("#curve-win", (M.kelly_curve || {}).win || []); drawCurve("#curve-place", (M.kelly_curve || {}).place || []);
   const lab = { rating: "Rating", weight: "Weight carried", draw_frac: "Draw (wide)", draw_frac_hv: "Draw at Happy Valley", draw_frac_sprint: "Draw in sprints", age: "Age", first_start: "Debut", log_days_off: "Days since run", dw_change: "Body weight change", last_pos: "Last finish position", avg_pos3: "Avg position, last 3", avg_lb3: "Avg lengths beaten, last 3", log_starts: "Career starts", win_rate: "Career win %", top3_rate: "Career top-3 %", jockey_rate: "Jockey win %", trainer_rate: "Trainer win %", won_last: "Won last start", last_log_odds: "Odds last start", avg_log_odds3: "Avg odds, last 3", log_public_p: "Public chance (log)" };
   const list = (names, coef) => names.map((n, i) => [n, coef[i]]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 10)
     .map(([n, c]) => `<dt>${lab[n] || n}</dt><dd style="color:${c > 0 ? "var(--jade)" : "var(--bad)"}">${c > 0 ? "+" : ""}${c.toFixed(3)}</dd>`).join("");
@@ -505,36 +616,37 @@ function renderEvidence() {
   $("#coef-b").innerHTML = list(M.market.columns, M.market.coef);
 }
 function svgEl(w, h) { return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" style="max-width:100%;display:block">`; }
-function drawCalib() {
-  const W = 360, H = 260, L = 44, B = 34, T = 10, R = 12, mx = 0.5;
+function drawCalib(sel, series, mx) {
+  const W = 360, H = 260, L = 44, B = 34, T = 10, R = 12;
   const x = v => L + (Math.min(v, mx) / mx) * (W - L - R), y = v => H - B - (Math.min(v, mx) / mx) * (H - B - T);
+  const ticks = mx > 0.6 ? [0, .2, .4, .6, .8, 1] : [0, .1, .2, .3, .4, .5];
   let s = svgEl(W, H);
-  for (const t of [0, .1, .2, .3, .4, .5]) s += `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}" stroke="var(--line)"/><line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/>
-    <text x="${x(t)}" y="${H - B + 14}" text-anchor="middle">${t * 100}%</text><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t * 100}%</text>`;
+  for (const t of ticks) s += `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}" stroke="var(--line)"/><line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/>
+    <text x="${x(t)}" y="${H - B + 14}" text-anchor="middle">${Math.round(t * 100)}%</text><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${Math.round(t * 100)}%</text>`;
   s += `<line x1="${x(0)}" y1="${y(0)}" x2="${x(mx)}" y2="${y(mx)}" stroke="var(--muted)" stroke-dasharray="4 4"/>`;
-  const series = [["public", "var(--muted)"], ["market_anchored", "var(--jade)"]];
   for (const [k, c] of series) {
     const pts = M.calibration[k].filter(b => b.n >= 30);
     s += `<polyline fill="none" stroke="${c}" stroke-width="2" points="${pts.map(b => `${x(b.pred)},${y(b.actual)}`).join(" ")}"/>`;
-    s += pts.map(b => `<circle cx="${x(b.pred)}" cy="${y(b.actual)}" r="3.5" fill="${c}"><title>${k}: predicted ${pct(b.pred)}, actual ${pct(b.actual)}, ${b.n} runners</title></circle>`).join("");
+    s += pts.map(b => `<circle cx="${x(b.pred)}" cy="${y(b.actual)}" r="3.5" fill="${c}"><title>predicted ${pct(b.pred)}, actual ${pct(b.actual)}, ${b.n} runners</title></circle>`).join("");
   }
   s += `<text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">predicted chance</text></svg>`;
-  $("#calib").innerHTML = s + `<div class="row" style="font-size:.85rem;gap:16px"><span><span style="color:var(--muted)">●</span> Public odds</span><span><span style="color:var(--jade)">●</span> Market-anchored model</span><span class="muted">Dashed line = perfect</span></div>`;
+  $(sel).innerHTML = s + `<div class="row" style="font-size:.85rem;gap:16px">${series.map(([, c, l]) => `<span><span style="color:${c}">●</span> ${l}</span>`).join("")}<span class="muted">Dashed line = perfect</span></div>`;
 }
-function drawCurve() {
-  const c = M.kelly_curve, W = 360, H = 260, L = 44, B = 34, T = 10, R = 12;
+function drawCurve(sel, c) {
+  if (!c.length) { $(sel).innerHTML = `<div class="none">No bets under this rule.</div>`; return; }
+  const W = 360, H = 260, L = 44, B = 34, T = 10, R = 12;
   const vals = c.map(p => p[1]), lo = Math.min(0.9, ...vals), hi = Math.max(1.1, ...vals);
-  const x = i => L + i / (c.length - 1) * (W - L - R), y = v => H - B - (v - lo) / (hi - lo) * (H - B - T);
+  const x = i => L + i / Math.max(1, c.length - 1) * (W - L - R), y = v => H - B - (v - lo) / (hi - lo) * (H - B - T);
   let s = svgEl(W, H);
-  const ticks = []; for (let t = Math.ceil(lo * 20) / 20; t <= hi + 1e-9; t += 0.05) ticks.push(+t.toFixed(2));
-  for (const t of ticks) s += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t.toFixed(2)}</text>`;
+  const step = hi - lo > 0.6 ? 0.1 : 0.05;
+  for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step) s += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t.toFixed(2)}</text>`;
   s += `<line x1="${L}" x2="${W - R}" y1="${y(1)}" y2="${y(1)}" stroke="var(--muted)" stroke-dasharray="4 4"/>`;
   const pts = c.map((p, i) => `${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`);
   s += `<polygon fill="var(--jade-soft)" points="${x(0)},${y(lo)} ${pts.join(" ")} ${x(c.length - 1)},${y(lo)}"/><polyline fill="none" stroke="var(--jade)" stroke-width="2" points="${pts.join(" ")}"/>`;
   s += `<circle cx="${x(c.length - 1)}" cy="${y(vals[vals.length - 1])}" r="4" fill="var(--jade)"/>`;
   s += `<text x="${L}" y="${H - B + 14}">${c[0][0]}</text><text x="${W - R}" y="${H - B + 14}" text-anchor="end">${c[c.length - 1][0]}</text>`;
   s += `<text x="${x(c.length - 1) - 6}" y="${y(vals[vals.length - 1]) - 8}" text-anchor="end" style="fill:var(--ink)">×${vals[vals.length - 1].toFixed(3)}</text></svg>`;
-  $("#curve").innerHTML = s + `<p class="muted" style="font-size:.85rem">Bankroll multiple, one point per race meeting. Starting bank = 1.00.</p>`;
+  $(sel).innerHTML = s + `<p class="muted" style="font-size:.85rem">Bankroll multiple, one point per race meeting. Starting bank = 1.00.</p>`;
 }
 
 // ---------- boot ----------
