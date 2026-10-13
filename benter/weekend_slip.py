@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -70,6 +71,8 @@ class Config:
     k_trainer: float = 50.0
     k_pair: float = 20.0
     l2: float = 1e-3                    # ridge on the standardised coefficients
+    extra_features: bool = True         # use form / market-memory / draw / class factors when the data has them
+    combine: str = "benter"             # "benter" two-stage blend, or "anchored" (factors fit on top of ln public p)
 
 
 FEATURES = [
@@ -300,7 +303,69 @@ def build_features(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     # public implied probability: 1/odds renormalised so the race sums to 1
     inv = 1.0 / df["win_odds"]
     df["public_p"] = inv / inv.groupby(df["race_id"]).transform("sum")
+    _form_features(df, g, km)
     return df
+
+
+def _class_num(c) -> float:
+    """'Class 4' -> 4, Group / Hong Kong Group races -> 0, Griffin -> 6 (easier = bigger)."""
+    s = str(c).upper()
+    if "GRIFFIN" in s:
+        return 6.0
+    if "GROUP" in s:
+        return 0.0
+    m = re.search(r"CLASS (\d)", s)
+    return float(m.group(1)) if m else np.nan
+
+
+def _form_features(df: pd.DataFrame, g, km):
+    """Extra Benter-style factors from a horse's own record and the market's
+    past opinion of it.  All use earlier runs only (shift by horse)."""
+    n = df.groupby("race_id")["horse_no"].transform("size")
+    pos = df["finish_position"].where(df["finish_position"] < 99, 14).clip(upper=14)
+    prev = lambda col: g[col].shift() if isinstance(col, str) else col.groupby(df["horse_id"]).shift()
+    roll = lambda col, k=3: col.groupby(df["horse_id"]).transform(lambda x: x.shift().rolling(k, min_periods=1).mean())
+
+    # past form: finishing positions and lengths beaten (non-finishers count as 14th / 30 lengths)
+    df["last_pos"] = prev(pos).fillna(8.0)
+    df["avg_pos3"] = roll(pos).fillna(8.0)
+    starts = g.cumcount()
+    df["log_starts"] = np.log1p(starts)
+    wins = df["won"].fillna(0).groupby(df["horse_id"]).cumsum() - df["won"].fillna(0)
+    df["win_rate"] = (wins + 0.08 * 5) / (starts + 5)  # shrunk toward 8% with 5 pseudo-runs
+
+    # the market's past opinion: ln(final win odds) at the last starts
+    lo = np.log(df["win_odds"].clip(1.0, 200.0))
+    df["last_log_odds"] = prev(lo).fillna(np.log(30.0))
+    df["avg_log_odds3"] = roll(lo).fillna(np.log(30.0))
+
+    # stepping up / down in trip
+    df["dist_change"] = ((df["distance"] - prev("distance")) / 1000.0).fillna(0.0)
+    df["abs_dist_change"] = df["dist_change"].abs()
+
+    if "lbw" in df and df["lbw"].notna().mean() > 0.5:
+        lb = df["lbw"].where(df["finish_position"] < 99, 30.0).clip(upper=30)
+        df["avg_lbw3"] = roll(lb).fillna(roll(lb).mean())
+    if "draw" in df and df["draw"].notna().mean() > 0.5:
+        # 0 = rail; matters more round Happy Valley's tight turns and in sprints
+        df["draw_frac"] = ((df["draw"] - 1) / (n - 1).clip(lower=1)).clip(0, 1).fillna(0.5)
+        df["draw_hv"] = df["draw_frac"] * (df["venue"] == "HV")
+        df["draw_sprint"] = df["draw_frac"] * (df["distance"] <= 1200)
+    if "race_class" in df and df["race_class"].notna().mean() > 0.5:
+        cls = df["race_class"].map(_class_num)
+        df["class_drop"] = (cls - prev(cls)).fillna(0.0)  # +1 = racing a class lower than last time
+    if "body_weight" in df and df["body_weight"].notna().mean() > 0.5:
+        df["body_wt_change"] = (df["body_weight"] - prev("body_weight")).fillna(0.0).clip(-60, 60)
+
+
+EXTRA_FEATURES = ["last_pos", "avg_pos3", "log_starts", "win_rate", "last_log_odds", "avg_log_odds3",
+                  "dist_change", "abs_dist_change", "avg_lbw3", "draw_frac", "draw_hv", "draw_sprint",
+                  "class_drop", "body_wt_change"]
+
+
+def model_features(df: pd.DataFrame, extra: bool = True) -> list[str]:
+    """The core factors plus every extra factor the data supports."""
+    return FEATURES + ([c for c in EXTRA_FEATURES if c in df.columns] if extra else [])
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +469,8 @@ class FittedModel:
     fundamental: ConditionalLogit
     alpha: float
     beta: float
+    features: list = field(default_factory=lambda: list(FEATURES))
+    anchored: ConditionalLogit | None = None  # set when cfg.combine == "anchored"
     metrics: dict = field(default_factory=dict)  # held-out fit, filled by fit_model
 
     def win_probabilities(self, df: pd.DataFrame) -> np.ndarray:
@@ -418,12 +485,22 @@ class FittedModel:
         the in-sample overconfidence of f from inflating alpha.
         """
         rid = df["race_id"].values
-        f = self.fundamental.predict_proba(df[FEATURES].values, rid)
         idx, n_r = ConditionalLogit._groups(rid)
-        c = race_softmax(self.alpha * np.log(f) + self.beta * np.log(df["public_p"].values), idx, n_r)
+        if self.anchored is not None:
+            c = self.anchored.predict_proba(_anchored_X(df, self.features), rid)
+        else:
+            f = self.fundamental.predict_proba(df[self.features].values, rid)
+            c = race_softmax(self.alpha * np.log(f) + self.beta * np.log(df["public_p"].values), idx, n_r)
         sums = np.bincount(idx, c, n_r)
         assert np.allclose(sums, 1.0, atol=1e-12), "win probabilities must sum to 1 in every race"
         return c
+
+
+def _anchored_X(df: pd.DataFrame, feats: list[str]) -> np.ndarray:
+    """Market-anchored design: ln(public p) plus the factors.  Fitting them
+    jointly makes each factor's coefficient measure what the public misprices,
+    rather than what predicts winners in general."""
+    return np.column_stack([np.log(df["public_p"].values), df[feats].values])
 
 
 def fit_model(feat: pd.DataFrame, cfg: Config, verbose: bool = True) -> FittedModel:
@@ -438,29 +515,38 @@ def fit_model(feat: pd.DataFrame, cfg: Config, verbose: bool = True) -> FittedMo
     blend = hist[(hist["date"] >= fit_end) & (hist["date"] < blend_end)]
     test = hist[hist["date"] >= blend_end]
 
-    fm = ConditionalLogit(l2=cfg.l2).fit(train[FEATURES].values, train["race_id"].values, train["won"].values)
-    f_blend = fm.predict_proba(blend[FEATURES].values, blend["race_id"].values)
+    feats = model_features(hist, cfg.extra_features)
+    fm = ConditionalLogit(l2=cfg.l2).fit(train[feats].values, train["race_id"].values, train["won"].values)
+    f_blend = fm.predict_proba(blend[feats].values, blend["race_id"].values)
     comb = ConditionalLogit(standardize=False).fit(
         np.column_stack([np.log(f_blend), np.log(blend["public_p"].values)]),
         blend["race_id"].values, blend["won"].values)
-    model = FittedModel(fm, *comb.coef_)
+    model = FittedModel(fm, *comb.coef_, features=feats)
     rid, won = test["race_id"].values, test["won"].values
-    f_test = fm.predict_proba(test[FEATURES].values, rid)
+    f_test = fm.predict_proba(test[feats].values, rid)
+    # alternative stage 2: factors fit jointly with ln(public p) on train + blend
+    tb = pd.concat([train, blend])
+    anch = ConditionalLogit(l2=cfg.l2).fit(_anchored_X(tb, feats), tb["race_id"].values, tb["won"].values)
+    r2_anch = pseudo_r2(anch.predict_proba(_anchored_X(test, feats), rid), won, rid)
+    r2_benter = pseudo_r2(model.win_probabilities(test), won, rid)
+    if cfg.combine == "anchored":
+        model.anchored = anch
     model.metrics = dict(
         races=dict(train=train.race_id.nunique(), blend=blend.race_id.nunique(), test=test.race_id.nunique()),
         r2_public=pseudo_r2(test["public_p"].values, won, rid), r2_fundamental=pseudo_r2(f_test, won, rid),
-        r2_combined=pseudo_r2(model.win_probabilities(test), won, rid))
+        r2_benter=r2_benter, r2_anchored=r2_anch,
+        r2_combined=r2_anch if cfg.combine == "anchored" else r2_benter)
 
     if verbose:
         m = model.metrics
         print(f"races: train {m['races']['train']}  blend {m['races']['blend']}  test {m['races']['test']}")
         print("\nFundamental conditional logit (coef per 1 sd of the factor):")
         print(f"  {'factor':16s} {'coef':>8s} {'s.e.':>7s} {'z':>7s}")
-        for name, b, se in zip(FEATURES, fm.coef_, fm.se_):
+        for name, b, se in zip(feats, fm.coef_, fm.se_):
             print(f"  {name:16s} {b:+8.3f} {se:7.3f} {b / se:+7.1f}")
         print(f"\nCombined model: alpha (fundamental) {model.alpha:.3f}   beta (public) {model.beta:.3f}")
         print("Held-out pseudo-R^2:  public {r2_public:.4f}   fundamental {r2_fundamental:.4f}   "
-              "combined {r2_combined:.4f}".format(**m))
+              "benter {r2_benter:.4f}   anchored {r2_anchored:.4f}".format(**m))
     return model
 
 

@@ -20,13 +20,14 @@ the weight is the rating plus a constant, so rating_rel still measures class.
 from __future__ import annotations
 
 import argparse
+import html as htmllib
 import io
 import json
 import re
 import time
 import urllib.error
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -41,7 +42,10 @@ MEETING_QUERY = (Path(__file__).parent / "queries" / "race_meetings.graphql").re
 UA = "benter-results/1.0 (personal research; read-only)"
 VENUES = {"Sha Tin": "ST", "Happy Valley": "HV"}
 COLUMNS = ["race_id", "date", "venue", "race_no", "distance", "horse_id", "horse_no", "horse_name", "jockey_id",
-           "trainer_id", "rating", "weight_carried", "finish_position", "finish_time", "win_odds"]
+           "trainer_id", "rating", "weight_carried", "finish_position", "finish_time", "win_odds",
+           "draw", "body_weight", "lbw", "race_class", "going", "surface", "course"]
+GOINGS = ["GOOD TO FIRM", "GOOD TO YIELDING", "YIELDING TO SOFT", "WET FAST", "WET SLOW", "GOOD", "YIELDING",
+          "SOFT", "HEAVY", "FAST", "SLOW"]
 
 
 def http_get(url: str, tries: int = 4) -> str:
@@ -87,9 +91,35 @@ def _position(p) -> float | None:
     return float(m.group(1)) if m else 99.0
 
 
+def _lengths(x) -> float:
+    """Lengths behind the winner: '---' 0, 'N' nose, 'SH', 'HD', 'NK', '1-3/4', '3/4', '12'."""
+    s = str(x).strip().upper()
+    special = {"---": 0.0, "N": 0.05, "SH": 0.1, "HD": 0.2, "NK": 0.3}
+    if s in special:
+        return special[s]
+    m = re.fullmatch(r"(?:(\d+)-)?(\d+)/(\d+)|(\d+(?:\.\d+)?)", s)
+    if not m:
+        return np.nan
+    if m.group(4):
+        return min(float(m.group(4)), 30.0)
+    return min(float(m.group(1) or 0) + float(m.group(2)) / float(m.group(3)), 30.0)
+
+
+def race_info(tail: str) -> dict:
+    """Class, distance, going, surface and course from the text after 'RACE n (k)'."""
+    head = re.match(r"\s*(.*?) - (\d{3,4})M", tail)
+    going = re.search(r"Going : (" + "|".join(GOINGS) + r")\b", tail)
+    course = re.search(r'Course : (TURF|ALL WEATHER TRACK)(?: - "([^"]+)" Course)?', tail)
+    return dict(race_class=head.group(1).strip() if head else None,
+                distance=int(head.group(2)) if head else np.nan,
+                going=going.group(1) if going else None,
+                surface=("AWT" if course.group(1).startswith("ALL") else "TURF") if course else None,
+                course=(course.group(2) if course and course.group(2) else None))
+
+
 def parse_race_page(html: str, day: date) -> dict | None:
     """One race's result.  None if the page holds no local result."""
-    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+    text = re.sub(r"\s+", " ", htmllib.unescape(re.sub(r"<[^>]+>", " ", html)))
     venue = next((code for name, code in VENUES.items() if f"{name}:" in text or f"{name} :" in text), None)
     try:
         tables = pd.read_html(io.StringIO(html), flavor="lxml")
@@ -100,8 +130,7 @@ def parse_race_page(html: str, day: date) -> dict | None:
     if venue is None or res is None or head is None:
         return None
     race_no = int(head.group(1))
-    tail = text[head.end():head.end() + 400]
-    dist = re.search(r"(\d{3,4})M\b", tail)
+    info = race_info(text[head.end():head.end() + 500])
     rows = []
     for _, r in res.iterrows():
         pos = _position(r["Pla."])
@@ -113,12 +142,14 @@ def parse_race_page(html: str, day: date) -> dict | None:
         odds = pd.to_numeric(r.get("Win Odds"), errors="coerce")
         rows.append(dict(
             race_id=lo.race_id(day.isoformat(), venue, race_no), date=day.isoformat(), venue=venue, race_no=race_no,
-            distance=int(dist.group(1)) if dist else np.nan, horse_id=m.group(2), horse_no=r["Horse No."],
+            distance=info["distance"], horse_id=m.group(2), horse_no=r["Horse No."],
             horse_name=m.group(1).strip(), jockey_id=str(r["Jockey"]).strip(), trainer_id=str(r["Trainer"]).strip(),
             rating=pd.to_numeric(r["Act. Wt."], errors="coerce"),
             weight_carried=pd.to_numeric(r["Act. Wt."], errors="coerce"),
             finish_position=pos, finish_time=_seconds(r["Finish Time"]) if pos < 99 else np.nan,
-            win_odds=odds,
+            win_odds=odds, draw=pd.to_numeric(r.get("Dr."), errors="coerce"),
+            body_weight=pd.to_numeric(r.get("Declar. Horse Wt."), errors="coerce"), lbw=_lengths(r.get("LBW")),
+            race_class=info["race_class"], going=info["going"], surface=info["surface"], course=info["course"],
         ))
     races = sorted({int(x) for x in re.findall(r"RaceNo=(\d+)", html)} | {race_no})
     return dict(venue=venue, race_no=race_no, races=races, rows=rows,
@@ -163,13 +194,38 @@ def scrape_meeting(day: date, delay: float = 1.0, log=print) -> pd.DataFrame | N
     return df
 
 
-def update_results(data_dir: Path = DATA, delay: float = 1.0, max_meetings: int | None = None, log=print) -> int:
-    """Download every listed meeting not already saved.  Returns how many were added."""
+def _stale(path: Path) -> bool:
+    """Saved before the extra columns (draw, going, ...) were collected."""
+    with path.open() as f:
+        return "draw" not in f.readline()
+
+
+def update_results(data_dir: Path = DATA, delay: float = 1.0, max_meetings: int | None = None, log=print,
+                   since: date | None = None, refresh: bool = False) -> int:
+    """Download every listed meeting not already saved.  Returns how many were added.
+
+    The results page only lists about a year of dates.  With `since`, every
+    calendar day from `since` up to the oldest listed date is tried as well
+    (except the late-July / August break); days without a meeting are
+    remembered as <date>.none.  With `refresh`, meetings saved in the old
+    format are downloaded again."""
     out = data_dir / "results"
     out.mkdir(parents=True, exist_ok=True)
     dates = meeting_dates(http_get(RESULTS_URL))
-    todo = [d for d in dates if d < date.today() and not (out / f"{d}.csv").exists()
-            and not (out / f"{d}.none").exists()]
+    if since and dates:
+        d, oldest = min(dates) - timedelta(days=1), set(dates)
+        while d >= since:
+            if not (d.month == 8 or (d.month == 7 and d.day > 20)) and d not in oldest:
+                dates.append(d)
+            d -= timedelta(days=1)
+
+    def needed(d):
+        f = out / f"{d}.csv"
+        if f.exists():
+            return refresh and _stale(f)
+        return not (out / f"{d}.none").exists()
+
+    todo = [d for d in dates if d < date.today() and needed(d)]
     if max_meetings:
         todo = todo[:max_meetings]
     log(f"results: {len(dates)} meetings listed, {len(todo)} to download")
@@ -228,7 +284,13 @@ def card_frame(meeting: dict) -> pd.DataFrame:
             hw = pd.to_numeric(h.get("handicapWeight"), errors="coerce")
             allow = pd.to_numeric((h.get("allowance") or "").strip() or 0, errors="coerce")
             wt = hw - (allow if allow == allow else 0)
+            track = ((r.get("raceTrack") or {}).get("description_en") or "").upper()
             rows.append(dict(
+                draw=pd.to_numeric(h.get("barrierDrawNumber"), errors="coerce"),
+                body_weight=pd.to_numeric(h.get("currentWeight"), errors="coerce"), lbw=np.nan,
+                race_class=r.get("raceClass_en") or None, going=(r.get("go_en") or "").upper() or None,
+                surface="AWT" if "ALL" in track else ("TURF" if track else None),
+                course=(r.get("raceCourse") or {}).get("displayCode") or None,
                 race_id=lo.race_id(day, venue, int(r["no"])), date=day, venue=venue, race_no=int(r["no"]),
                 distance=pd.to_numeric(r.get("distance"), errors="coerce"),
                 horse_id=(h.get("horse") or {}).get("code"), horse_no=int(h["no"]), horse_name=h.get("name_en"),
@@ -245,9 +307,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--delay", type=float, default=1.0, help="seconds between page requests")
     ap.add_argument("--max-meetings", type=int)
+    ap.add_argument("--since", type=date.fromisoformat, help="also try every day back to this date (YYYY-MM-DD)")
+    ap.add_argument("--refresh", action="store_true", help="re-download meetings saved in the old format")
     ap.add_argument("--card", action="store_true")
     a = ap.parse_args(argv)
-    n = update_results(delay=a.delay, max_meetings=a.max_meetings)
+    n = update_results(delay=a.delay, max_meetings=a.max_meetings, since=a.since, refresh=a.refresh)
     df = load_results()
     print(f"added {n} meetings; history now {df.race_id.nunique()} races, "
           f"{df.date.min().date()} to {df.date.max().date()}")

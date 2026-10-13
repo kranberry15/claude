@@ -42,7 +42,8 @@ def is_trusted(model: ws.FittedModel) -> bool:
     """Real money only if, on races it never saw, the model beats the tote by a
     clear margin and the blend actually leans on the fundamentals."""
     m = model.metrics
-    return m["r2_combined"] - m["r2_public"] >= TRUST_MARGIN and model.alpha >= 0.1
+    leans_on_form = model.anchored is not None or model.alpha >= 0.1
+    return m["r2_combined"] - m["r2_public"] >= TRUST_MARGIN and leans_on_form
 
 
 def describe(slip: pd.DataFrame, card: pd.DataFrame, meeting: dict, cfg: ws.Config, model: ws.FittedModel,
@@ -111,8 +112,10 @@ def main(argv=None):
     ap.add_argument("--skip-update", action="store_true", help="don't download new results first")
     ap.add_argument("--details", action="store_true", help="print the model's statistics")
     ap.add_argument("--replay", type=int, metavar="N", help="paper-test the last N past meetings instead")
+    ap.add_argument("--combine", choices=["benter", "anchored"], default="benter",
+                    help="how model and public odds are combined (see weekend_slip.Config.combine)")
     a = ap.parse_args(argv)
-    cfg = ws.Config(total_bankroll=a.bankroll, kelly_fraction=a.kelly, min_edge=a.min_edge)
+    cfg = ws.Config(total_bankroll=a.bankroll, kelly_fraction=a.kelly, min_edge=a.min_edge, combine=a.combine)
     if a.replay:
         return replay(hd.load_results(), a.replay, cfg)
 
