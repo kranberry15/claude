@@ -24,6 +24,15 @@ If it says betting hasn't opened, tell them when to try again (odds usually open
 - A daily scheduled job downloads new results (`python -m benter.hkjc_data`), runs
   `benter.track`, and commits `data/hkjc/`.
 
+## Model status (2026-10-13)
+
+Full history 2018-09 to 2026-10 (712 meetings, 6,779 races), 24 factors. On 1,060 held-out
+races: public odds 0.1883, Benter blend 0.1887, market-anchored 0.1897 (pseudo-R^2). Neither
+clears the trust margin (+0.005), the blend puts ~zero/negative weight on form, and a
+40-meeting walk-forward replay made 0 bets (benter) / 1 losing bet (anchored). So every slip is
+PAPER ONLY. Place tips that do appear come mostly from the place-probability formula, not form,
+and are untested. Details: `data/hkjc/model_report.md`. Say this plainly if asked whether to bet.
+
 ## Code map
 
 - `benter/hkjc_data.py`: results scraper (racing.hkjc.com, 1 page/s) + upcoming card

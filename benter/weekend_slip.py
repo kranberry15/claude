@@ -243,6 +243,7 @@ def build_features(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     """Point-in-time handicapping factors.  A runner's features use only races
     run before that day, so the model never sees the result it predicts."""
     df = df.sort_values(["date", "race_no", "horse_no"]).reset_index(drop=True)
+    df["horse_no"] = df["horse_no"].astype(int)  # matched as text against tote selections
     df["won"] = np.where(df["finish_position"].isna(), np.nan, (df["finish_position"] == 1).astype(float))
     km = df["distance"] / 1000.0
 

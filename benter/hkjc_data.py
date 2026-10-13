@@ -253,6 +253,9 @@ def load_results(data_dir: Path = DATA) -> pd.DataFrame:
         raise FileNotFoundError("no results downloaded yet - run: python -m benter.hkjc_data")
     df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
     df["date"] = pd.to_datetime(df["date"])
+    # saddle-cloth numbers must stay integers: they're matched as text ("7") against tote odds
+    df = df[df["horse_no"].notna()]
+    df["horse_no"] = df["horse_no"].astype(int)
     return df
 
 
